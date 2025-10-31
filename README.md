@@ -15,38 +15,41 @@
 
 ## The Problem
 
-When you monitor an upcoming TV season or movie in Sonarr/Radarr, they immediately start searching for content - **even before episodes air or movies are released**. This creates a significant problem:
+When monitoring upcoming content, Sonarr and Radarr can search for and download releases before they're actually available, leading to fake pre-release files.
 
-**Bad actors flood indexers with fake pre-release content.** These fake files use correct naming conventions, tricking Sonarr and Radarr into downloading garbage. You're left manually cleaning up fake downloads, managing blacklists, and dealing with frustration.
+**Why existing features don't fully solve this:**
 
-The *arr applications have consistently refused to implement delayed monitoring as a feature, leaving users to handle this problem manually or accept the fake downloads as an unavoidable cost.
+**Sonarr's Delay Profiles** only apply after a release is detected. They delay the decision to grab between Usenet and torrents, not the start of monitoring itself. Sonarr will still begin searching for unreleased episodes as soon as they're added to your library.
+
+**Radarr's Minimum Availability** setting should prevent early searches, but it doesn't always behave consistently. Depending on the indexer or tracker, it can still grab early or incorrectly labeled releases.
+
+If you use public indexers where fake releases are common, you're left manually managing monitoring status or accepting the occasional fake download.
 
 ## The Solution
 
-**unmonitarr** automatically manages monitoring status in Sonarr and Radarr based on air dates and release dates:
+unmonitarr manages monitoring status automatically based on air dates and release dates.
 
-1. **Before Release**: Content is automatically **unmonitored** - preventing any searches
-2. **After Release + Delay**: Content is automatically **re-monitored** after legitimate releases have time to propagate
-3. **Instant Updates**: Webhook support triggers immediate processing when you add new content
-4. **Smart Management**: Only touches items that need management, respects your preferences
+**How it works:**
 
-This gives legitimate releases time to seed and propagate through the community while completely eliminating fake pre-release downloads.
+1. Content is unmonitored before its air/release date, preventing any searches
+2. After the air/release date plus a configurable delay (default 2 hours), content is automatically re-monitored
+3. Webhook support allows instant processing when you add new content
+4. Tag-based controls let you exclude specific items from automation
+
+This approach waits until legitimate releases are expected before allowing Sonarr and Radarr to search, preventing most fake pre-release downloads.
 
 ---
 
 ## Key Features
 
-- ⏰ **Time-Delayed Monitoring** - Automatically unmonitor content until after air/release dates
-- ⚡ **Webhook Triggers** - Instant processing when you add new movies or shows
-- 🔄 **Scheduled Checks** - Continuous monitoring at configurable intervals
-- 🎬 **Radarr Support** - Intelligently handles digital, physical, and cinema release dates
-- 📺 **Sonarr Support** - Manages individual episodes within monitored seasons
-- 🏷️ **Smart Tagging** - Tracks managed items with auto-tags
-- 🚫 **Ignore Tags** - Exclude specific content from automation
-- 📦 **Skip Downloaded** - Optionally ignores items with existing files
-- 🧪 **Dry-Run Mode** - Test changes before applying them
-- 🐳 **Docker Ready** - Simple deployment via Docker or Docker Compose
-- 💚 **Health Monitoring** - Built-in health check endpoint
+- Time-delayed monitoring based on actual air/release dates
+- Automatic re-monitoring after a configurable delay
+- Webhook triggers for instant updates when adding content
+- Separate handling for movies (release dates) and TV shows (episode air dates)
+- Smart tag system to track managed items and exclude others
+- Dry-run mode for testing changes before applying them
+- Docker and Docker Compose ready
+- Health check endpoint for monitoring
 
 ---
 
