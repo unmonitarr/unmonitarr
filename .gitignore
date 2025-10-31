@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Docker
+*.log
+dist/
+build/
+.eggs/
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,71 @@
+# Git
+.git
+.gitignore
+.gitattributes
+.github
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.pkl
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+*.egg-info/
+.eggs/
+
+# Environment & config
+.env
+.env.*      # catch variants like .env.dev, .env.local
+*.ini
+*.toml
+*.yaml
+*.yml
+
+# Build / distribution artifacts
+dist/
+build/
+*.egg
+*.whl
+*.deb
+*.rpm
+
+# Logs
+*.log
+logs/
+*.out
+*.err
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# IDE / Editor junk
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS / Windows cruft
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Coverage / testing
+.coverage
+.tox/
+pytest_cache/
+.pytest_cache/
+htmlcov/
+.mypy_cache/
+.cache/
