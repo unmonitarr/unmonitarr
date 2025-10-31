@@ -6,7 +6,7 @@
 
   <p>
     <a href="https://github.com/unmonitarr/unmonitarr/releases"><img src="https://img.shields.io/github/v/release/unmonitarr/unmonitarr?style=flat-square" alt="Release" /></a>
-    <a href="https://github.com/unmonitarr/unmonitarr/blob/main/LICENSE"><img src="https://img.shields.io/github/license/unmonitarr/unmonitarr?style=flat-square" alt="License" /></a>
+    <a href="https://github.com/unmonitarr/unmonitarr/blob/main/LICENSE"><img src="https://img.shields.io/github/license/unmonitarr/unmonitarr?style=flat-square&v=2" alt="License" /></a>
     <a href="https://github.com/unmonitarr/unmonitarr/stargazers"><img src="https://img.shields.io/github/stars/unmonitarr/unmonitarr?style=flat-square" alt="Stars" /></a>
   </p>
 </div>
