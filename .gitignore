@@ -21,3 +21,6 @@ build/
 # IDE
 .vscode/
 .idea/
+
+# AI Context (local only)
+CLAUDE.md
