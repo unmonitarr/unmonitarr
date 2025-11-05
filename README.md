@@ -255,6 +255,23 @@ Combined with webhooks, this ensures items are always properly managed.
 | `ENABLE_SONARR` | `1` | Enable Sonarr integration: `1` = yes, `0` = no |
 | `SONARR_URL` | *required* | Full URL to Sonarr instance (e.g., `http://sonarr:8989`) |
 | `SONARR_API_KEY` | *required* | Sonarr API key (Settings → General → Security) |
+| `SEASON_PACK_MODE` | `0` | Enable season pack mode: `1` = yes, `0` = no (see below) |
+| `SEASON_PACK_MODE_TAG` | `season-pack-mode` | Tag to identify series that should use season pack mode |
+
+#### Season Pack Mode
+
+Season pack mode addresses shows where Sonarr has staggered weekly air dates, but the full season is released all at once (common with streaming services).
+
+**How it works:**
+- Tag specific series in Sonarr with the tag specified in `SEASON_PACK_MODE_TAG` (default: `season-pack-mode`)
+- When the first episode's air date + delay passes, unmonitarr re-monitors **all episodes** in that season
+- This allows you to grab season packs when they're available, instead of waiting weeks for each episode's individual air date
+
+**Example:**
+- Art Detectives S01: Sonarr shows weekly episodes (Nov 1, Nov 8, Nov 15...)
+- Reality: Full season releases Nov 1st as a season pack
+- With season pack mode: All episodes re-monitored Nov 1st + delay
+- Without: Episodes re-monitor individually over several weeks, missing the season pack swarm
 
 ---
 
