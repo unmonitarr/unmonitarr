@@ -43,9 +43,22 @@ def _run_once_inner():
     id_to_label, label_to_id = _tags_map()
     auto_tag_id = _ensure_tag(Config.AUTO_TAG_NAME, label_to_id)
 
+    # Get season pack mode tag ID if feature is enabled
+    season_pack_tag_id = None
+    if Config.SEASON_PACK_MODE:
+        season_pack_tag_id = _ensure_tag(Config.SEASON_PACK_MODE_TAG, label_to_id)
+
     # Track all monitored series (latest season monitored), excluding IGNORE_TAG_NAME
     series = _req("GET","/api/v3/series").json()
     series_map = {s["id"]: s["title"] for s in series}
+
+    # Track which series have season pack mode enabled
+    season_pack_series = set()
+    if Config.SEASON_PACK_MODE and season_pack_tag_id:
+        for s in series:
+            if season_pack_tag_id in s.get("tags", []):
+                season_pack_series.add(s["id"])
+
     tracked = []
     for s in series:
         if not s.get("monitored"): continue
@@ -66,36 +79,107 @@ def _run_once_inner():
 
     for sid, season in tracked:
         eps = _req("GET","/api/v3/episode", params={"seriesId": sid, "seasonNumber": season}).json()
-        for e in eps:
-            air = e.get("airDateUtc")
-            if not air:
-                continue
-            assessed += 1
-            try:
-                air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
-            except Exception:
-                continue
-            if Config.SKIP_IF_FILE and e.get("hasFile"):
-                continue
-            threshold = air_dt + delay
-            monitored = bool(e.get("monitored", False))
-            series_title = series_map.get(sid, "Unknown Series")
-            season_number = season
-            episode_number = e.get("episodeNumber", "?")
-            episode_title = e.get("title", "Unknown Title")
-            formatted = f"{series_title} – S{season_number:02}E{episode_number:02} – {episode_title} (airDate: {air})"
-            if air_dt <= now and now >= threshold and not monitored:
-                log.info("MONITOR: %s", formatted)
-                eps_to_monitor.append(e["id"])
-            elif air_dt > now and monitored:
-                log.info("UNMONITOR: %s", formatted)
-                eps_to_unmonitor.append(e["id"])
-                # Ensure the auto-unmonitored tag is applied to the parent series
-                if not Config.DRY_RUN:
-                    s = _req("GET", f"/api/v3/series/{sid}").json()
-                    if auto_tag_id not in s.get("tags", []):
-                        tags = s.get("tags", []) + [auto_tag_id]
-                        _req("PUT", f"/api/v3/series/{sid}", json={"tags": tags})
+
+        # Check if this series has season pack mode enabled
+        use_season_pack_mode = sid in season_pack_series
+
+        if use_season_pack_mode:
+            # Season pack mode: Find trigger episode and potentially monitor entire season
+            trigger_episode = None
+
+            # Find Episode 1 or first episode with air date
+            for e in sorted(eps, key=lambda x: x.get("episodeNumber", 999)):
+                if e.get("airDateUtc"):
+                    trigger_episode = e
+                    break
+
+            if trigger_episode:
+                air = trigger_episode.get("airDateUtc")
+                try:
+                    air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
+                    threshold = air_dt + delay
+
+                    # Check if trigger episode threshold has been met
+                    if air_dt <= now and now >= threshold:
+                        # Re-monitor all episodes in this season (excluding those with files)
+                        season_episodes_added = 0
+                        for e in eps:
+                            assessed += 1
+                            if not e.get("airDateUtc"):
+                                continue
+                            if Config.SKIP_IF_FILE and e.get("hasFile"):
+                                continue
+                            if not e.get("monitored", False):
+                                series_title = series_map.get(sid, "Unknown Series")
+                                episode_number = e.get("episodeNumber", "?")
+                                episode_title = e.get("title", "Unknown Title")
+                                formatted = f"{series_title} – S{season:02}E{episode_number:02} – {episode_title}"
+                                log.info("MONITOR (season pack): %s", formatted)
+                                eps_to_monitor.append(e["id"])
+                                season_episodes_added += 1
+
+                        if season_episodes_added > 0:
+                            series_title = series_map.get(sid, "Unknown Series")
+                            log.info("SEASON PACK MODE: Re-monitored %d episodes for %s S%02d",
+                                   season_episodes_added, series_title, season)
+                    else:
+                        # Still before trigger - unmonitor any monitored future episodes
+                        for e in eps:
+                            air = e.get("airDateUtc")
+                            if not air:
+                                continue
+                            assessed += 1
+                            try:
+                                air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
+                            except Exception:
+                                continue
+                            if air_dt > now and e.get("monitored", False):
+                                series_title = series_map.get(sid, "Unknown Series")
+                                episode_number = e.get("episodeNumber", "?")
+                                episode_title = e.get("title", "Unknown Title")
+                                formatted = f"{series_title} – S{season:02}E{episode_number:02} – {episode_title} (airDate: {air})"
+                                log.info("UNMONITOR: %s", formatted)
+                                eps_to_unmonitor.append(e["id"])
+                                # Ensure the auto-unmonitored tag is applied to the parent series
+                                if not Config.DRY_RUN:
+                                    s = _req("GET", f"/api/v3/series/{sid}").json()
+                                    if auto_tag_id not in s.get("tags", []):
+                                        tags = s.get("tags", []) + [auto_tag_id]
+                                        _req("PUT", f"/api/v3/series/{sid}", json={"tags": tags})
+                except Exception:
+                    continue
+        else:
+            # Standard mode: Process each episode individually
+            for e in eps:
+                air = e.get("airDateUtc")
+                if not air:
+                    continue
+                assessed += 1
+                try:
+                    air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
+                except Exception:
+                    continue
+                if Config.SKIP_IF_FILE and e.get("hasFile"):
+                    continue
+                threshold = air_dt + delay
+                monitored = bool(e.get("monitored", False))
+                series_title = series_map.get(sid, "Unknown Series")
+                season_number = season
+                episode_number = e.get("episodeNumber", "?")
+                episode_title = e.get("title", "Unknown Title")
+                formatted = f"{series_title} – S{season_number:02}E{episode_number:02} – {episode_title} (airDate: {air})"
+                if air_dt <= now and now >= threshold and not monitored:
+                    log.info("MONITOR: %s", formatted)
+                    eps_to_monitor.append(e["id"])
+                elif air_dt > now and monitored:
+                    log.info("UNMONITOR: %s", formatted)
+                    eps_to_unmonitor.append(e["id"])
+                    # Ensure the auto-unmonitored tag is applied to the parent series
+                    if not Config.DRY_RUN:
+                        s = _req("GET", f"/api/v3/series/{sid}").json()
+                        if auto_tag_id not in s.get("tags", []):
+                            tags = s.get("tags", []) + [auto_tag_id]
+                            _req("PUT", f"/api/v3/series/{sid}", json={"tags": tags})
 
     if eps_to_unmonitor:
         if Config.DRY_RUN:

@@ -27,9 +27,11 @@ class Config:
     IGNORE_INCINEMAS   = env_bool("IGNORE_INCINEMAS", "0")
 
     # Sonarr
-    ENABLE_SONARR      = env_bool("ENABLE_SONARR", "1")
-    SONARR_URL         = os.environ.get("SONARR_URL", "").rstrip("/")
-    SONARR_API_KEY     = os.environ.get("SONARR_API_KEY", "")
+    ENABLE_SONARR         = env_bool("ENABLE_SONARR", "1")
+    SONARR_URL            = os.environ.get("SONARR_URL", "").rstrip("/")
+    SONARR_API_KEY        = os.environ.get("SONARR_API_KEY", "")
+    SEASON_PACK_MODE      = env_bool("SEASON_PACK_MODE", "0")
+    SEASON_PACK_MODE_TAG  = os.environ.get("SEASON_PACK_MODE_TAG", "season-pack-mode")
 
     # Dry run
     DRY_RUN            = env_bool("DRY_RUN", "1")
