@@ -129,12 +129,14 @@ With `DRY_RUN=1`, unmonitarr will log what it *would* do without making actual c
 
 **5. Enable live mode:**
 
-When satisfied, set `DRY_RUN=0` and restart:
+When satisfied, set `DRY_RUN=0` and **recreate the container**:
 
 ```bash
 docker-compose down
 docker-compose up -d
 ```
+
+**Note:** Environment variable changes require container recreation. Don't use `docker-compose restart` - it won't pick up the new values. Always use `down` then `up -d`.
 
 ---
 
@@ -256,14 +258,14 @@ Combined with webhooks, this ensures items are always properly managed.
 | `SONARR_URL` | *required* | Full URL to Sonarr instance (e.g., `http://sonarr:8989`) |
 | `SONARR_API_KEY` | *required* | Sonarr API key (Settings → General → Security) |
 | `SEASON_PACK_MODE` | `0` | Enable season pack mode: `1` = yes, `0` = no (see below) |
-| `SEASON_PACK_MODE_TAG` | `season-pack-mode` | Tag to identify series that should use season pack mode |
+| `SEASON_PACK_MODE_TAG` | `season-pack` | Tag to identify series that should use season pack mode |
 
 #### Season Pack Mode
 
 Season pack mode addresses shows where Sonarr has staggered weekly air dates, but the full season is released all at once (common with streaming services).
 
 **How it works:**
-- Tag specific series in Sonarr with the tag specified in `SEASON_PACK_MODE_TAG` (default: `season-pack-mode`)
+- Tag specific series in Sonarr with the tag specified in `SEASON_PACK_MODE_TAG` (default: `season-pack`)
 - When the first episode's air date + delay passes, unmonitarr re-monitors **all episodes** in that season
 - This allows you to grab season packs when they're available, instead of waiting weeks for each episode's individual air date
 
@@ -408,6 +410,21 @@ Expected responses:
 - ✅ `DELAY_MINUTES` is set correctly
 - ✅ Air/release dates are correct in Sonarr/Radarr
 - ✅ Check logs for timing decisions
+
+### Configuration changes not taking effect
+
+If you change environment variables (like `DRY_RUN`) but they don't apply:
+
+**Problem:** Docker containers read environment variables at **creation time**, not runtime.
+
+**Solution:** Recreate the container (don't just restart):
+
+```bash
+docker-compose down
+docker-compose up -d
+```
+
+**Don't use:** `docker-compose restart` - this won't reload environment variables.
 
 ### Health check failing
 
