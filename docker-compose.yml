@@ -34,4 +34,6 @@ services:
       - ENABLE_SONARR=1                  # Enable Sonarr integration (1=enabled, 0=disabled)
       - SONARR_URL=http://localhost:8989 # Sonarr instance URL
       - SONARR_API_KEY=${SONARR_API_KEY} # Sonarr API key
+      - SEASON_PACK_MODE=0               # Enable season pack mode (1=enabled, 0=disabled)
+      - SEASON_PACK_MODE_TAG=season-pack # Tag for series using season pack mode
     restart: unless-stopped
