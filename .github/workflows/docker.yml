@@ -3,6 +3,7 @@ name: Build & Publish Docker image
 on:
   push:
     tags: [ "v*" ]
+    branches: [ "**" ]
   pull_request:
     branches: [ "main" ]
 
@@ -37,12 +38,17 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,format=short
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-          flavor: |
-            latest=auto
+            # Production tags (version releases only)
+            type=semver,pattern={{version}}
+            type=semver,pattern=v{{version}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+            # Development tags (branch builds)
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+            type=ref,event=branch,prefix=dev-,enable=${{ github.ref != 'refs/heads/main' }}
+
+            # SHA tag (always available)
+            type=sha,format=short,prefix=sha-
 
       - name: Build and push
         uses: docker/build-push-action@v6
