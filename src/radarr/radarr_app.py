@@ -100,14 +100,21 @@ def _run_once():
             continue
 
         release = _pick_release(m)
-        if not release:
-            log.debug("No usable release date for %s", title)
-            continue
-        threshold = release + delay
         monitored = bool(m.get("monitored", False))
         has_auto  = auto_tag_id in set(m.get("tags", []))
 
         assessed += 1
+
+        # Handle items without release dates
+        if not release:
+            if monitored:
+                log.info("%sUNMONITOR (no release date): %s", "[DRY] " if Config.DRY_RUN else "", title)
+                _set_monitored(int(m["id"]), False)
+                managed += 1
+                unmonitored += 1
+            continue
+
+        threshold = release + delay
 
         if monitored and now < threshold:
             log.info("%sUNMONITOR: %s until %s", "[DRY] " if Config.DRY_RUN else "", title, threshold.isoformat())
