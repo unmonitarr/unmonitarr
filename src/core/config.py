@@ -31,7 +31,7 @@ class Config:
     SONARR_URL            = os.environ.get("SONARR_URL", "").rstrip("/")
     SONARR_API_KEY        = os.environ.get("SONARR_API_KEY", "")
     SEASON_PACK_MODE      = env_bool("SEASON_PACK_MODE", "0")
-    SEASON_PACK_MODE_TAG  = os.environ.get("SEASON_PACK_MODE_TAG", "season-pack-mode")
+    SEASON_PACK_MODE_TAG  = os.environ.get("SEASON_PACK_MODE_TAG", "season-pack")
 
     # Dry run
     DRY_RUN            = env_bool("DRY_RUN", "1")
