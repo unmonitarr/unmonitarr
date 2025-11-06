@@ -101,10 +101,11 @@ def _run_once_inner():
 
                     # Check if trigger episode threshold has been met
                     if air_dt <= now and now >= threshold:
-                        # Re-monitor all episodes in this season (excluding those with files)
+                        # Re-monitor all episodes in this season (excluding those with files or no air dates)
                         season_episodes_added = 0
                         for e in eps:
                             assessed += 1
+                            # Skip episodes without air dates
                             if not e.get("airDateUtc"):
                                 continue
                             if Config.SKIP_IF_FILE and e.get("hasFile"):
@@ -126,9 +127,18 @@ def _run_once_inner():
                         # Still before trigger - unmonitor any monitored future episodes
                         for e in eps:
                             air = e.get("airDateUtc")
-                            if not air:
-                                continue
                             assessed += 1
+
+                            # Handle episodes without air dates
+                            if not air:
+                                if e.get("monitored", False):
+                                    series_title = series_map.get(sid, "Unknown Series")
+                                    episode_number = e.get("episodeNumber", "?")
+                                    episode_title = e.get("title", "Unknown Title")
+                                    formatted = f"{series_title} – S{season:02}E{episode_number:02} – {episode_title}"
+                                    log.info("UNMONITOR (no air date): %s", formatted)
+                                    eps_to_unmonitor.append(e["id"])
+                                continue
                             try:
                                 air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
                             except Exception:
@@ -152,9 +162,18 @@ def _run_once_inner():
             # Standard mode: Process each episode individually
             for e in eps:
                 air = e.get("airDateUtc")
-                if not air:
-                    continue
                 assessed += 1
+
+                # Handle episodes without air dates
+                if not air:
+                    if e.get("monitored", False):
+                        series_title = series_map.get(sid, "Unknown Series")
+                        episode_number = e.get("episodeNumber", "?")
+                        episode_title = e.get("title", "Unknown Title")
+                        formatted = f"{series_title} – S{season:02}E{episode_number:02} – {episode_title}"
+                        log.info("UNMONITOR (no air date): %s", formatted)
+                        eps_to_unmonitor.append(e["id"])
+                    continue
                 try:
                     air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
                 except Exception:
