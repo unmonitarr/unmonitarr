@@ -138,6 +138,12 @@ def _run_once_inner():
                                     formatted = f"{series_title} – S{season:02}E{episode_number:02} – {episode_title}"
                                     log.info("UNMONITOR (no air date): %s", formatted)
                                     eps_to_unmonitor.append(e["id"])
+                                    # Ensure the auto-unmonitored tag is applied to the parent series
+                                    if not Config.DRY_RUN:
+                                        s = _req("GET", f"/api/v3/series/{sid}").json()
+                                        if auto_tag_id not in s.get("tags", []):
+                                            tags = s.get("tags", []) + [auto_tag_id]
+                                            _req("PUT", f"/api/v3/series/{sid}", json={"tags": tags})
                                 continue
                             try:
                                 air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
@@ -173,6 +179,12 @@ def _run_once_inner():
                         formatted = f"{series_title} – S{season:02}E{episode_number:02} – {episode_title}"
                         log.info("UNMONITOR (no air date): %s", formatted)
                         eps_to_unmonitor.append(e["id"])
+                        # Ensure the auto-unmonitored tag is applied to the parent series
+                        if not Config.DRY_RUN:
+                            s = _req("GET", f"/api/v3/series/{sid}").json()
+                            if auto_tag_id not in s.get("tags", []):
+                                tags = s.get("tags", []) + [auto_tag_id]
+                                _req("PUT", f"/api/v3/series/{sid}", json={"tags": tags})
                     continue
                 try:
                     air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)

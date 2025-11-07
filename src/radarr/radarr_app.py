@@ -110,6 +110,7 @@ def _run_once():
             if monitored:
                 log.info("%sUNMONITOR (no release date): %s", "[DRY] " if Config.DRY_RUN else "", title)
                 _set_monitored(int(m["id"]), False)
+                _apply_tags(int(m["id"]), auto_tag_id, "add")
                 managed += 1
                 unmonitored += 1
             continue
