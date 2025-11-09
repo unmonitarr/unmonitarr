@@ -36,7 +36,7 @@ unmonitarr manages monitoring status automatically based on air dates and releas
 3. Webhook support allows instant processing when you add new content
 4. Tag-based controls let you exclude specific items from automation
 
-This approach waits until legitimate releases are expected before allowing Sonarr and Radarr to search, preventing most fake pre-release downloads.
+This approach waits until legitimate releases are expected before allowing Sonarr and Radarr to search, reducing most fake pre-release downloads.
 
 ---
 
@@ -129,12 +129,14 @@ With `DRY_RUN=1`, unmonitarr will log what it *would* do without making actual c
 
 **5. Enable live mode:**
 
-When satisfied, set `DRY_RUN=0` and restart:
+When satisfied, set `DRY_RUN=0` and **recreate the container**:
 
 ```bash
 docker-compose down
 docker-compose up -d
 ```
+
+**Note:** Environment variable changes require container recreation. Don't use `docker-compose restart` - it won't pick up the new values. Always use `down` then `up -d`.
 
 ---
 
@@ -152,7 +154,7 @@ For instant processing when you add new content, configure webhooks in Sonarr an
      - If on the same host: `http://localhost:5099/trigger/sonarr`
      - If using Docker Desktop: `http://host.docker.internal:5099/trigger/sonarr`
    - **Method**: `POST`
-   - **Notification Triggers**: ✅ **On Series Add**
+   - **Notification Triggers**: Check **On Series Add**
 4. Click **Test** to verify, then **Save**
 
 ### Radarr Webhook Setup
@@ -165,7 +167,7 @@ For instant processing when you add new content, configure webhooks in Sonarr an
      - If on the same host: `http://localhost:5099/trigger/radarr`
      - If using Docker Desktop: `http://host.docker.internal:5099/trigger/radarr`
    - **Method**: `POST`
-   - **Notification Triggers**: ✅ **On Movie Add**
+   - **Notification Triggers**: Check **On Movie Add**
 4. Click **Test** to verify, then **Save**
 
 ### Why Use Webhooks?
@@ -255,6 +257,23 @@ Combined with webhooks, this ensures items are always properly managed.
 | `ENABLE_SONARR` | `1` | Enable Sonarr integration: `1` = yes, `0` = no |
 | `SONARR_URL` | *required* | Full URL to Sonarr instance (e.g., `http://sonarr:8989`) |
 | `SONARR_API_KEY` | *required* | Sonarr API key (Settings → General → Security) |
+| `SEASON_PACK_MODE` | `0` | Enable season pack mode: `1` = yes, `0` = no (see below) |
+| `SEASON_PACK_MODE_TAG` | `season-pack` | Tag to identify series that should use season pack mode |
+
+#### Season Pack Mode
+
+Season pack mode addresses shows where Sonarr has staggered weekly air dates, but the full season is released all at once (common with streaming services).
+
+**How it works:**
+- Tag specific series in Sonarr with the tag specified in `SEASON_PACK_MODE_TAG` (default: `season-pack`)
+- When the first episode's air date + delay passes, unmonitarr re-monitors **all episodes** in that season
+- This allows you to grab season packs when they're available, instead of waiting weeks for each episode's individual air date
+
+**Example:**
+- Art Detectives S01: Sonarr shows weekly episodes (Nov 1, Nov 8, Nov 15...)
+- Reality: Full season releases Nov 1st as a season pack
+- With season pack mode: All episodes re-monitored Nov 1st + delay
+- Without: Episodes re-monitor individually over several weeks, missing the season pack swarm
 
 ---
 
@@ -362,35 +381,52 @@ Expected responses:
 ### Items aren't being managed
 
 **Check:**
-- ✅ Items aren't tagged with `IGNORE_TAG_NAME` (default: `ignore`)
-- ✅ Items have air/release dates set in Sonarr/Radarr
-- ✅ API keys are correct
-- ✅ `DRY_RUN=0` (not in preview mode)
-- ✅ Check logs for errors: `docker-compose logs unmonitarr`
+- Items aren't tagged with `IGNORE_TAG_NAME` (default: `ignore`)
+- Items have air/release dates set in Sonarr/Radarr (or see note below)
+- API keys are correct
+- `DRY_RUN=0` (not in preview mode)
+- Check logs for errors: `docker-compose logs unmonitarr`
+
+**Note:** Items without air/release dates will be unmonitored if currently monitored. If you don't want unmonitarr to manage specific items without dates, add the `ignore` tag to them.
 
 ### Webhooks not triggering
 
 **Check:**
-- ✅ Port 5099 is accessible from Sonarr/Radarr
-- ✅ Correct URL (use container name if same Docker network)
-- ✅ Test manually: `curl -X POST http://localhost:5099/trigger/sonarr`
-- ✅ Check unmonitarr logs when webhook fires
+- Port 5099 is accessible from Sonarr/Radarr
+- Correct URL (use container name if same Docker network)
+- Test manually: `curl -X POST http://localhost:5099/trigger/sonarr`
+- Check unmonitarr logs when webhook fires
 
 ### Connection errors to Sonarr/Radarr
 
 **Check:**
-- ✅ URLs are correct (include `http://` or `https://`)
-- ✅ If using Docker, use container names or Docker network IPs
-- ✅ API keys are valid (copy from Settings → General in each app)
-- ✅ Firewalls aren't blocking connections
+- URLs are correct (include `http://` or `https://`)
+- If using Docker, use container names or Docker network IPs
+- API keys are valid (copy from Settings → General in each app)
+- Firewalls aren't blocking connections
 
 ### Items re-monitored too early/late
 
 **Check:**
-- ✅ `TZ` environment variable matches your timezone
-- ✅ `DELAY_MINUTES` is set correctly
-- ✅ Air/release dates are correct in Sonarr/Radarr
-- ✅ Check logs for timing decisions
+- `TZ` environment variable matches your timezone
+- `DELAY_MINUTES` is set correctly
+- Air/release dates are correct in Sonarr/Radarr
+- Check logs for timing decisions
+
+### Configuration changes not taking effect
+
+If you change environment variables (like `DRY_RUN`) but they don't apply:
+
+**Problem:** Docker containers read environment variables at **creation time**, not runtime.
+
+**Solution:** Recreate the container (don't just restart):
+
+```bash
+docker-compose down
+docker-compose up -d
+```
+
+**Don't use:** `docker-compose restart` - this won't reload environment variables.
 
 ### Health check failing
 
@@ -403,9 +439,9 @@ curl http://localhost:5099/health
 ```
 
 If failing:
-- ✅ Check container is running: `docker ps`
-- ✅ Check logs for startup errors: `docker logs unmonitarr`
-- ✅ Verify port 5099 is exposed
+- Check container is running: `docker ps`
+- Check logs for startup errors: `docker logs unmonitarr`
+- Verify port 5099 is exposed
 
 ---
 
@@ -502,7 +538,7 @@ Currently only Sonarr and Radarr are supported. Other apps may be added in the f
 
 ### Will this slow down my downloads?
 
-Only by the configured `DELAY_MINUTES`. This is intentional - you're trading a small delay for eliminating fake downloads entirely.
+Only by the configured `DELAY_MINUTES`. This is intentional - you're trading a small delay for reducing fake downloads.
 
 ### Can I exclude specific movies or shows?
 
