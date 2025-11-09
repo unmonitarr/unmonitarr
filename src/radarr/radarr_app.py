@@ -88,6 +88,7 @@ def _run_once():
     id_to_label, label_to_id = _tags_map()
     auto_tag_id = _ensure_tag(Config.AUTO_TAG_NAME, label_to_id)
     delay = timedelta(minutes=Config.DELAY_MINUTES)
+    remonitor_window = timedelta(days=Config.RADARR_REMONITOR_WINDOW_DAYS) if Config.RADARR_REMONITOR_WINDOW_DAYS > 0 else None
     now = datetime.now(timezone.utc)
 
     movies = _req("GET","/api/v3/movie").json()
@@ -124,11 +125,17 @@ def _run_once():
             managed += 1
             unmonitored += 1
         elif (not monitored) and has_auto and now >= threshold:
-            log.info("%sMONITOR: %s (past %s)", "[DRY] " if Config.DRY_RUN else "", title, threshold.isoformat())
-            _set_monitored(int(m["id"]), True)
-            _apply_tags(int(m["id"]), auto_tag_id, "remove")
-            managed += 1
-            remonitored += 1
+            # Check if within re-monitoring window (if enabled)
+            within_window = True
+            if remonitor_window is not None:
+                within_window = (now - release) <= remonitor_window
+
+            if within_window:
+                log.info("%sMONITOR: %s (past %s)", "[DRY] " if Config.DRY_RUN else "", title, threshold.isoformat())
+                _set_monitored(int(m["id"]), True)
+                _apply_tags(int(m["id"]), auto_tag_id, "remove")
+                managed += 1
+                remonitored += 1
     log.info("SUMMARY: Assessed %d, Managed %d, Unmonitored %d, Monitored %d", assessed, managed, unmonitored, remonitored)
 
 def run_once():

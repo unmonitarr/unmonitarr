@@ -48,9 +48,18 @@ def _run_once_inner():
     if Config.SEASON_PACK_MODE:
         season_pack_tag_id = _ensure_tag(Config.SEASON_PACK_MODE_TAG, label_to_id)
 
+    # Set up re-monitoring window (0 = disabled/unlimited)
+    remonitor_window = timedelta(days=Config.SONARR_REMONITOR_WINDOW_DAYS) if Config.SONARR_REMONITOR_WINDOW_DAYS > 0 else None
+
     # Track all monitored series (latest season monitored), excluding IGNORE_TAG_NAME
     series = _req("GET","/api/v3/series").json()
     series_map = {s["id"]: s["title"] for s in series}
+
+    # Track which series have the auto-unmonitored tag
+    series_with_auto_tag = set()
+    for s in series:
+        if auto_tag_id in s.get("tags", []):
+            series_with_auto_tag.add(s["id"])
 
     # Track which series have season pack mode enabled
     season_pack_series = set()
@@ -76,6 +85,7 @@ def _run_once_inner():
 
     eps_to_monitor = []
     eps_to_unmonitor = []
+    series_to_remove_tag = set()  # Track series that should have auto-tag removed
 
     for sid, season in tracked:
         eps = _req("GET","/api/v3/episode", params={"seriesId": sid, "seasonNumber": season}).json()
@@ -101,28 +111,36 @@ def _run_once_inner():
 
                     # Check if trigger episode threshold has been met
                     if air_dt <= now and now >= threshold:
-                        # Re-monitor all episodes in this season (excluding those with files or no air dates)
-                        season_episodes_added = 0
-                        for e in eps:
-                            assessed += 1
-                            # Skip episodes without air dates
-                            if not e.get("airDateUtc"):
-                                continue
-                            if Config.SKIP_IF_FILE and e.get("hasFile"):
-                                continue
-                            if not e.get("monitored", False):
-                                series_title = series_map.get(sid, "Unknown Series")
-                                episode_number = e.get("episodeNumber", "?")
-                                episode_title = e.get("title", "Unknown Title")
-                                formatted = f"{series_title} – S{season:02}E{episode_number:02} – {episode_title}"
-                                log.info("MONITOR (season pack): %s", formatted)
-                                eps_to_monitor.append(e["id"])
-                                season_episodes_added += 1
+                        # Check auto-tag and time window for season pack mode
+                        has_auto_tag = sid in series_with_auto_tag
+                        within_window = True
+                        if remonitor_window is not None:
+                            within_window = (now - air_dt) <= remonitor_window
 
-                        if season_episodes_added > 0:
-                            series_title = series_map.get(sid, "Unknown Series")
-                            log.info("SEASON PACK MODE: Re-monitored %d episodes for %s S%02d",
-                                   season_episodes_added, series_title, season)
+                        if has_auto_tag and within_window:
+                            # Re-monitor all episodes in this season (excluding those with files or no air dates)
+                            season_episodes_added = 0
+                            for e in eps:
+                                assessed += 1
+                                # Skip episodes without air dates
+                                if not e.get("airDateUtc"):
+                                    continue
+                                if Config.SKIP_IF_FILE and e.get("hasFile"):
+                                    continue
+                                if not e.get("monitored", False):
+                                    series_title = series_map.get(sid, "Unknown Series")
+                                    episode_number = e.get("episodeNumber", "?")
+                                    episode_title = e.get("title", "Unknown Title")
+                                    formatted = f"{series_title} – S{season:02}E{episode_number:02} – {episode_title}"
+                                    log.info("MONITOR (season pack): %s", formatted)
+                                    eps_to_monitor.append(e["id"])
+                                    season_episodes_added += 1
+
+                            if season_episodes_added > 0:
+                                series_title = series_map.get(sid, "Unknown Series")
+                                log.info("SEASON PACK MODE: Re-monitored %d episodes for %s S%02d",
+                                       season_episodes_added, series_title, season)
+                                series_to_remove_tag.add(sid)
                     else:
                         # Still before trigger - unmonitor any monitored future episodes
                         for e in eps:
@@ -199,9 +217,18 @@ def _run_once_inner():
                 episode_number = e.get("episodeNumber", "?")
                 episode_title = e.get("title", "Unknown Title")
                 formatted = f"{series_title} – S{season_number:02}E{episode_number:02} – {episode_title} (airDate: {air})"
+
+                # Re-monitoring logic: Check auto-tag, threshold, and time window
                 if air_dt <= now and now >= threshold and not monitored:
-                    log.info("MONITOR: %s", formatted)
-                    eps_to_monitor.append(e["id"])
+                    has_auto_tag = sid in series_with_auto_tag
+                    within_window = True
+                    if remonitor_window is not None:
+                        within_window = (now - air_dt) <= remonitor_window
+
+                    if has_auto_tag and within_window:
+                        log.info("MONITOR: %s", formatted)
+                        eps_to_monitor.append(e["id"])
+                        series_to_remove_tag.add(sid)
                 elif air_dt > now and monitored:
                     log.info("UNMONITOR: %s", formatted)
                     eps_to_unmonitor.append(e["id"])
@@ -222,6 +249,16 @@ def _run_once_inner():
             log.info("[DRY] PUT /api/v3/episode/monitor -> %s", json_module.dumps({"episodeIds": eps_to_monitor, "monitored": True}))
         else:
             _req("PUT","/api/v3/episode/monitor", json={"episodeIds": eps_to_monitor, "monitored": True})
+
+    # Remove auto-tag from series that had episodes re-monitored
+    for sid in series_to_remove_tag:
+        if Config.DRY_RUN:
+            log.info("[DRY] Removing auto-tag from series: %s", series_map.get(sid, f"id:{sid}"))
+        else:
+            s = _req("GET", f"/api/v3/series/{sid}").json()
+            if auto_tag_id in s.get("tags", []):
+                s["tags"] = [t for t in s.get("tags", []) if t != auto_tag_id]
+                _req("PUT", f"/api/v3/series/{sid}", json=s)
 
     if eps_to_monitor or eps_to_unmonitor:
         log.info("SUMMARY: Assessed %d, Managed %d, Unmonitored %d, Monitored %d", assessed, len(eps_to_monitor) + len(eps_to_unmonitor), len(eps_to_unmonitor), len(eps_to_monitor))
