@@ -36,7 +36,7 @@ unmonitarr manages monitoring status automatically based on air dates and releas
 3. Webhook support allows instant processing when you add new content
 4. Tag-based controls let you exclude specific items from automation
 
-This approach waits until legitimate releases are expected before allowing Sonarr and Radarr to search, preventing most fake pre-release downloads.
+This approach waits until legitimate releases are expected before allowing Sonarr and Radarr to search, reducing most fake pre-release downloads.
 
 ---
 
@@ -154,7 +154,7 @@ For instant processing when you add new content, configure webhooks in Sonarr an
      - If on the same host: `http://localhost:5099/trigger/sonarr`
      - If using Docker Desktop: `http://host.docker.internal:5099/trigger/sonarr`
    - **Method**: `POST`
-   - **Notification Triggers**: ✅ **On Series Add**
+   - **Notification Triggers**: Check **On Series Add**
 4. Click **Test** to verify, then **Save**
 
 ### Radarr Webhook Setup
@@ -167,7 +167,7 @@ For instant processing when you add new content, configure webhooks in Sonarr an
      - If on the same host: `http://localhost:5099/trigger/radarr`
      - If using Docker Desktop: `http://host.docker.internal:5099/trigger/radarr`
    - **Method**: `POST`
-   - **Notification Triggers**: ✅ **On Movie Add**
+   - **Notification Triggers**: Check **On Movie Add**
 4. Click **Test** to verify, then **Save**
 
 ### Why Use Webhooks?
@@ -381,35 +381,37 @@ Expected responses:
 ### Items aren't being managed
 
 **Check:**
-- ✅ Items aren't tagged with `IGNORE_TAG_NAME` (default: `ignore`)
-- ✅ Items have air/release dates set in Sonarr/Radarr
-- ✅ API keys are correct
-- ✅ `DRY_RUN=0` (not in preview mode)
-- ✅ Check logs for errors: `docker-compose logs unmonitarr`
+- Items aren't tagged with `IGNORE_TAG_NAME` (default: `ignore`)
+- Items have air/release dates set in Sonarr/Radarr (or see note below)
+- API keys are correct
+- `DRY_RUN=0` (not in preview mode)
+- Check logs for errors: `docker-compose logs unmonitarr`
+
+**Note:** Items without air/release dates will be unmonitored if currently monitored. If you don't want unmonitarr to manage specific items without dates, add the `ignore` tag to them.
 
 ### Webhooks not triggering
 
 **Check:**
-- ✅ Port 5099 is accessible from Sonarr/Radarr
-- ✅ Correct URL (use container name if same Docker network)
-- ✅ Test manually: `curl -X POST http://localhost:5099/trigger/sonarr`
-- ✅ Check unmonitarr logs when webhook fires
+- Port 5099 is accessible from Sonarr/Radarr
+- Correct URL (use container name if same Docker network)
+- Test manually: `curl -X POST http://localhost:5099/trigger/sonarr`
+- Check unmonitarr logs when webhook fires
 
 ### Connection errors to Sonarr/Radarr
 
 **Check:**
-- ✅ URLs are correct (include `http://` or `https://`)
-- ✅ If using Docker, use container names or Docker network IPs
-- ✅ API keys are valid (copy from Settings → General in each app)
-- ✅ Firewalls aren't blocking connections
+- URLs are correct (include `http://` or `https://`)
+- If using Docker, use container names or Docker network IPs
+- API keys are valid (copy from Settings → General in each app)
+- Firewalls aren't blocking connections
 
 ### Items re-monitored too early/late
 
 **Check:**
-- ✅ `TZ` environment variable matches your timezone
-- ✅ `DELAY_MINUTES` is set correctly
-- ✅ Air/release dates are correct in Sonarr/Radarr
-- ✅ Check logs for timing decisions
+- `TZ` environment variable matches your timezone
+- `DELAY_MINUTES` is set correctly
+- Air/release dates are correct in Sonarr/Radarr
+- Check logs for timing decisions
 
 ### Configuration changes not taking effect
 
@@ -437,9 +439,9 @@ curl http://localhost:5099/health
 ```
 
 If failing:
-- ✅ Check container is running: `docker ps`
-- ✅ Check logs for startup errors: `docker logs unmonitarr`
-- ✅ Verify port 5099 is exposed
+- Check container is running: `docker ps`
+- Check logs for startup errors: `docker logs unmonitarr`
+- Verify port 5099 is exposed
 
 ---
 
@@ -536,7 +538,7 @@ Currently only Sonarr and Radarr are supported. Other apps may be added in the f
 
 ### Will this slow down my downloads?
 
-Only by the configured `DELAY_MINUTES`. This is intentional - you're trading a small delay for eliminating fake downloads entirely.
+Only by the configured `DELAY_MINUTES`. This is intentional - you're trading a small delay for reducing fake downloads.
 
 ### Can I exclude specific movies or shows?
 
