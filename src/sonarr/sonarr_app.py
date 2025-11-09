@@ -142,8 +142,8 @@ def _run_once_inner():
                                     if not Config.DRY_RUN:
                                         s = _req("GET", f"/api/v3/series/{sid}").json()
                                         if auto_tag_id not in s.get("tags", []):
-                                            tags = s.get("tags", []) + [auto_tag_id]
-                                            _req("PUT", f"/api/v3/series/{sid}", json={"tags": tags})
+                                            s["tags"] = s.get("tags", []) + [auto_tag_id]
+                                            _req("PUT", f"/api/v3/series/{sid}", json=s)
                                 continue
                             try:
                                 air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
@@ -160,8 +160,8 @@ def _run_once_inner():
                                 if not Config.DRY_RUN:
                                     s = _req("GET", f"/api/v3/series/{sid}").json()
                                     if auto_tag_id not in s.get("tags", []):
-                                        tags = s.get("tags", []) + [auto_tag_id]
-                                        _req("PUT", f"/api/v3/series/{sid}", json={"tags": tags})
+                                        s["tags"] = s.get("tags", []) + [auto_tag_id]
+                                        _req("PUT", f"/api/v3/series/{sid}", json=s)
                 except Exception:
                     continue
         else:
@@ -183,8 +183,8 @@ def _run_once_inner():
                         if not Config.DRY_RUN:
                             s = _req("GET", f"/api/v3/series/{sid}").json()
                             if auto_tag_id not in s.get("tags", []):
-                                tags = s.get("tags", []) + [auto_tag_id]
-                                _req("PUT", f"/api/v3/series/{sid}", json={"tags": tags})
+                                s["tags"] = s.get("tags", []) + [auto_tag_id]
+                                _req("PUT", f"/api/v3/series/{sid}", json=s)
                     continue
                 try:
                     air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
@@ -209,8 +209,8 @@ def _run_once_inner():
                     if not Config.DRY_RUN:
                         s = _req("GET", f"/api/v3/series/{sid}").json()
                         if auto_tag_id not in s.get("tags", []):
-                            tags = s.get("tags", []) + [auto_tag_id]
-                            _req("PUT", f"/api/v3/series/{sid}", json={"tags": tags})
+                            s["tags"] = s.get("tags", []) + [auto_tag_id]
+                            _req("PUT", f"/api/v3/series/{sid}", json=s)
 
     if eps_to_unmonitor:
         if Config.DRY_RUN:
