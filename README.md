@@ -188,8 +188,10 @@ With webhooks, unmonitarr processes new content **immediately** when you add it,
    - `digital`: Prefers digital release
    - `physical`: Prefers physical release
 3. **Before release + delay**: Movie is **unmonitored** and tagged with `AUTO_TAG_NAME`
-4. **After release + delay**: Movie is **re-monitored** and tag is removed
+4. **After release + delay**: Movie is **re-monitored** (if it has the auto-tag AND released within time window) and tag is removed
 5. Movies tagged with `IGNORE_TAG_NAME` are never touched
+
+**Re-monitoring Safety:** Movies are only re-monitored if they have the `auto-unmonitored` tag (meaning unmonitarr managed them) AND the release was within `RADARR_REMONITOR_WINDOW_DAYS`. This prevents re-monitoring of old movies you've already watched and removed.
 
 **Example Timeline:**
 - Movie digital release: March 15, 2024
@@ -203,9 +205,11 @@ With webhooks, unmonitarr processes new content **immediately** when you add it,
 2. For each episode, it checks the air date:
    - Episodes without air dates are skipped
    - Episodes with existing files are skipped (if `SKIP_IF_FILE=1`)
-3. **Before air date**: Episode is **unmonitored**
-4. **After air date + delay**: Episode is **re-monitored**
+3. **Before air date**: Episode is **unmonitored** and series is tagged with `AUTO_TAG_NAME`
+4. **After air date + delay**: Episode is **re-monitored** (if series has the auto-tag AND episode aired within time window) and tag is removed
 5. Series tagged with `IGNORE_TAG_NAME` are never touched
+
+**Re-monitoring Safety:** Episodes are only re-monitored if the parent series has the `auto-unmonitored` tag (meaning unmonitarr managed them) AND the episode aired within `SONARR_REMONITOR_WINDOW_DAYS`. This prevents re-monitoring of old episodes you've already watched and removed.
 
 **Example Timeline:**
 - Episode airs: Wednesday, 8:00 PM EST
@@ -239,6 +243,8 @@ Combined with webhooks, this ensures items are always properly managed.
 | `SKIP_IF_FILE` | `1` | Skip items with existing files: `1` = yes, `0` = no |
 | `AUTO_TAG_NAME` | `auto-unmonitored` | Tag applied to items managed by unmonitarr |
 | `IGNORE_TAG_NAME` | `ignore` | Tag to exclude items from management |
+| `RADARR_REMONITOR_WINDOW_DAYS` | `30` | Only re-monitor movies released within this many days (`0` = disabled) |
+| `SONARR_REMONITOR_WINDOW_DAYS` | `14` | Only re-monitor episodes aired within this many days (`0` = disabled) |
 
 ### Radarr Settings
 
