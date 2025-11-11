@@ -77,7 +77,7 @@ docker build -t unmonitarr:test .
 ```yaml
 services:
   unmonitarr:
-    image: unmonitarr:test  # Changed from ghcr.io/ccarpinteri/unmonitarr:latest
+    image: unmonitarr:test  # Changed from ghcr.io/unmonitarr/unmonitarr:latest
     # ... rest of config
 ```
 
