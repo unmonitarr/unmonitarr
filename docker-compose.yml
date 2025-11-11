@@ -29,11 +29,13 @@ services:
       - RADARR_API_KEY=${RADARR_API_KEY} # Radarr API key
       - PREFERRED_RELEASE=either         # Preferred release type (e.g., 'either', 'cut', 'proper')
       - IGNORE_INCINEMAS=0               # Ignore in-cinemas movies (1=enabled, 0=disabled)
+      - RADARR_REMONITOR_WINDOW_DAYS=30  # Only re-monitor movies released within X days (0=disabled)
 
       # --- Sonarr settings ---
       - ENABLE_SONARR=1                  # Enable Sonarr integration (1=enabled, 0=disabled)
       - SONARR_URL=http://localhost:8989 # Sonarr instance URL
       - SONARR_API_KEY=${SONARR_API_KEY} # Sonarr API key
+      - SONARR_REMONITOR_WINDOW_DAYS=14  # Only re-monitor episodes aired within X days (0=disabled)
       - SEASON_PACK_MODE=0               # Enable season pack mode (1=enabled, 0=disabled)
       - SEASON_PACK_MODE_TAG=season-pack # Tag for series using season pack mode
     restart: unless-stopped

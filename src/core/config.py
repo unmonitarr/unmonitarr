@@ -33,6 +33,10 @@ class Config:
     SEASON_PACK_MODE      = env_bool("SEASON_PACK_MODE", "0")
     SEASON_PACK_MODE_TAG  = os.environ.get("SEASON_PACK_MODE_TAG", "season-pack")
 
+    # Re-monitoring windows (0 = disabled/unlimited)
+    RADARR_REMONITOR_WINDOW_DAYS = env_int("RADARR_REMONITOR_WINDOW_DAYS", "30")
+    SONARR_REMONITOR_WINDOW_DAYS = env_int("SONARR_REMONITOR_WINDOW_DAYS", "14")
+
     # Dry run
     DRY_RUN            = env_bool("DRY_RUN", "1")
 
