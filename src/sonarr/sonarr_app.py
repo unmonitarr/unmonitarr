@@ -86,9 +86,15 @@ def _run_once_inner():
     eps_to_monitor = []
     eps_to_unmonitor = []
     series_to_remove_tag = set()  # Track series that should have auto-tag removed
+    series_episodes_to_check = {}  # Track all episodes per series for tag removal logic
 
     for sid, season in tracked:
         eps = _req("GET","/api/v3/episode", params={"seriesId": sid, "seasonNumber": season}).json()
+
+        # Store episodes for this series for later tag removal check
+        if sid not in series_episodes_to_check:
+            series_episodes_to_check[sid] = []
+        series_episodes_to_check[sid].extend(eps)
 
         # Check if this series has season pack mode enabled
         use_season_pack_mode = sid in season_pack_series
@@ -251,14 +257,63 @@ def _run_once_inner():
             _req("PUT","/api/v3/episode/monitor", json={"episodeIds": eps_to_monitor, "monitored": True})
 
     # Remove auto-tag from series that had episodes re-monitored
+    # BUT only if there are no remaining episodes that still need re-monitoring
     for sid in series_to_remove_tag:
-        if Config.DRY_RUN:
-            log.info("[DRY] Removing auto-tag from series: %s", series_map.get(sid, f"id:{sid}"))
+        # Check if any episodes in this series still need re-monitoring
+        should_keep_tag = False
+
+        if sid in series_episodes_to_check:
+            for e in series_episodes_to_check[sid]:
+                # Skip if episode is monitored (already handled)
+                if e.get("monitored", False):
+                    continue
+
+                # Skip if episode has a file (won't re-monitor anyway due to SKIP_IF_FILE)
+                if Config.SKIP_IF_FILE and e.get("hasFile"):
+                    continue
+
+                # Skip if no air date (won't re-monitor)
+                air = e.get("airDateUtc")
+                if not air:
+                    continue
+
+                # Check if episode could be re-monitored in the future
+                try:
+                    air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
+                    threshold = air_dt + delay
+
+                    # Keep tag if episode hasn't aired yet (will need re-monitoring later)
+                    if air_dt > now:
+                        should_keep_tag = True
+                        break
+
+                    # Keep tag if episode has aired but threshold not met yet
+                    if now < threshold:
+                        should_keep_tag = True
+                        break
+
+                    # Episode has aired and threshold met - check if within window
+                    within_window = True
+                    if remonitor_window is not None:
+                        within_window = (now - air_dt) <= remonitor_window
+
+                    # Keep tag if episode is within window (could still be re-monitored)
+                    if within_window:
+                        should_keep_tag = True
+                        break
+                except Exception:
+                    continue
+
+        if should_keep_tag:
+            log.info("Keeping auto-tag on series (episodes still need re-monitoring): %s", series_map.get(sid, f"id:{sid}"))
         else:
-            s = _req("GET", f"/api/v3/series/{sid}").json()
-            if auto_tag_id in s.get("tags", []):
-                s["tags"] = [t for t in s.get("tags", []) if t != auto_tag_id]
-                _req("PUT", f"/api/v3/series/{sid}", json=s)
+            if Config.DRY_RUN:
+                log.info("[DRY] Removing auto-tag from series: %s", series_map.get(sid, f"id:{sid}"))
+            else:
+                s = _req("GET", f"/api/v3/series/{sid}").json()
+                if auto_tag_id in s.get("tags", []):
+                    s["tags"] = [t for t in s.get("tags", []) if t != auto_tag_id]
+                    _req("PUT", f"/api/v3/series/{sid}", json=s)
 
     if eps_to_monitor or eps_to_unmonitor:
         log.info("SUMMARY: Assessed %d, Managed %d, Unmonitored %d, Monitored %d", assessed, len(eps_to_monitor) + len(eps_to_unmonitor), len(eps_to_unmonitor), len(eps_to_monitor))
