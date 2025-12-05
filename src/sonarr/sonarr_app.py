@@ -75,9 +75,10 @@ def _run_once_inner():
             continue
         seasons = s.get("seasons",[]) or []
         if not seasons: continue
-        latest = max(seasons, key=lambda x: x.get("seasonNumber", -1))
-        if not latest.get("monitored"): continue
-        tracked.append((s["id"], latest["seasonNumber"]))
+        # Process all monitored seasons, not just the latest
+        for season in seasons:
+            if season.get("monitored"):
+                tracked.append((s["id"], season["seasonNumber"]))
     assessed = 0
 
     delay = timedelta(minutes=Config.DELAY_MINUTES)
