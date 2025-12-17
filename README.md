@@ -31,8 +31,8 @@ unmonitarr manages monitoring status automatically based on air dates and releas
 
 **How it works:**
 
-1. Content is unmonitored before its air/release date, preventing any searches
-2. After the air/release date plus a configurable delay (default 2 hours), content is automatically re-monitored
+1. Content is unmonitored before the threshold (air/release date + delay), preventing any searches
+2. After the threshold passes, content is automatically re-monitored (delay can be negative to re-monitor early)
 3. Webhook support allows instant processing when you add new content
 4. Tag-based controls let you exclude specific items from automation
 
@@ -238,7 +238,7 @@ Combined with webhooks, this ensures items are always properly managed.
 | `TZ` | `UTC` | Timezone for date calculations (e.g., `Australia/Melbourne`) |
 | `LOG_LEVEL` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `SLEEP_MINUTES` | `30` | Minutes between scheduled checks |
-| `DELAY_MINUTES` | `120` | Minutes after air/release date before re-monitoring |
+| `DELAY_MINUTES` | `120` | Minutes after air/release date before re-monitoring. Supports negative values (e.g., `-60` = 1 hour before) |
 | `DRY_RUN` | `1` | Preview mode: `1` = log only, `0` = apply changes |
 | `SKIP_IF_FILE` | `1` | Skip items with existing files: `1` = yes, `0` = no |
 | `AUTO_TAG_NAME` | `auto-unmonitored` | Tag applied to items managed by unmonitarr |
@@ -327,7 +327,22 @@ Season pack mode addresses shows where Sonarr has staggered weekly air dates, bu
 
 ---
 
-### Use Case 4: Exclude Specific Series/Movies
+### Use Case 4: Early Swarm Catching
+
+**Goal**: Catch early leaks or releases that appear before the official air/release time.
+
+**Configuration**:
+```yaml
+- DELAY_MINUTES=-60        # Re-monitor 1 hour before air/release
+```
+
+**Result**: Content is re-monitored 1 hour before the official air/release time to catch early swarms.
+
+**Warning**: This increases the risk of downloading fake pre-release content. Only use if you understand the trade-off.
+
+---
+
+### Use Case 5: Exclude Specific Series/Movies
 
 **Goal**: Some content should always be monitored immediately.
 

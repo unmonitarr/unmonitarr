@@ -117,7 +117,7 @@ def _run_once_inner():
                     threshold = air_dt + delay
 
                     # Check if trigger episode threshold has been met
-                    if air_dt <= now and now >= threshold:
+                    if now >= threshold:
                         # Check auto-tag and time window for season pack mode
                         has_auto_tag = sid in series_with_auto_tag
                         within_window = True
@@ -174,7 +174,7 @@ def _run_once_inner():
                                 air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
                             except Exception:
                                 continue
-                            if air_dt > now and e.get("monitored", False):
+                            if now < threshold and e.get("monitored", False):
                                 series_title = series_map.get(sid, "Unknown Series")
                                 episode_number = e.get("episodeNumber", "?")
                                 episode_title = e.get("title", "Unknown Title")
@@ -226,7 +226,7 @@ def _run_once_inner():
                 formatted = f"{series_title} – S{season_number:02}E{episode_number:02} – {episode_title} (airDate: {air})"
 
                 # Re-monitoring logic: Check auto-tag, threshold, and time window
-                if air_dt <= now and now >= threshold and not monitored:
+                if now >= threshold and not monitored:
                     has_auto_tag = sid in series_with_auto_tag
                     within_window = True
                     if remonitor_window is not None:
@@ -236,7 +236,7 @@ def _run_once_inner():
                         log.info("MONITOR: %s", formatted)
                         eps_to_monitor.append(e["id"])
                         series_to_remove_tag.add(sid)
-                elif air_dt > now and monitored:
+                elif now < threshold and monitored:
                     log.info("UNMONITOR: %s", formatted)
                     eps_to_unmonitor.append(e["id"])
                     # Ensure the auto-unmonitored tag is applied to the parent series
