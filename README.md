@@ -44,6 +44,7 @@ This approach waits until legitimate releases are expected before allowing Sonar
 
 - Time-delayed monitoring based on actual air/release dates
 - Automatic re-monitoring after a configurable delay
+- Per-item delay overrides via tags (e.g. `delayby_60`) — override the global delay for specific series or movies
 - Webhook triggers for instant updates when adding content
 - Separate handling for movies (release dates) and TV shows (episode air dates)
 - Smart tag system to track managed items and exclude others
@@ -246,6 +247,17 @@ Combined with webhooks, this ensures items are always properly managed.
 | `RADARR_REMONITOR_WINDOW_DAYS` | `30` | Only re-monitor movies released within this many days (`0` = disabled) |
 | `SONARR_REMONITOR_WINDOW_DAYS` | `14` | Only re-monitor episodes aired within this many days (`0` = disabled) |
 
+#### Per-item Delay Overrides
+
+You can override `DELAY_MINUTES` for individual series or movies using a tag with the prefix `delayby_` followed by an integer (positive or negative). Create the tag in Sonarr or Radarr's tag manager, then apply it to a series or movie.
+
+Examples:
+- `delayby_60` — wait 60 minutes after air/release before re-monitoring
+- `delayby_1440` — wait 24 hours
+- `delayby_-30` — re-monitor 30 minutes before the official air/release time
+
+If a series or movie has this tag, it takes priority over `DELAY_MINUTES`. If multiple `delayby_` tags are found on the same item, unmonitarr falls back to the global `DELAY_MINUTES` and logs a warning.
+
 ### Radarr Settings
 
 | Variable | Default | Description |
@@ -342,7 +354,23 @@ Season pack mode addresses shows where Sonarr has staggered weekly air dates, bu
 
 ---
 
-### Use Case 5: Exclude Specific Series/Movies
+### Use Case 5: Per-item Delay Override
+
+**Goal**: Use a different delay for specific series or movies without changing the global setting.
+
+**Steps**:
+1. In Sonarr/Radarr, go to Settings → Tags and create a tag like `delayby_30`
+2. Apply the tag to the series or movie you want to override
+3. That item will use 30 minutes instead of the global `DELAY_MINUTES`
+
+**Useful for:**
+- News/sports that you want fast (low delay)
+- Anticipated releases where fakes are common (high delay)
+- Individual series that drop as season packs but need a different timing
+
+---
+
+### Use Case 6: Exclude Specific Series/Movies
 
 **Goal**: Some content should always be monitored immediately.
 
