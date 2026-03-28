@@ -1,5 +1,6 @@
 import logging
 import json as json_module
+import re
 from datetime import datetime, timedelta, timezone
 import requests
 from core.config import Config
@@ -7,6 +8,25 @@ import time
 
 log = logging.getLogger("sonarr")
 AIR_FMT = "%Y-%m-%dT%H:%M:%SZ"
+
+_DELAY_TAG_RE = re.compile(r"^delayby_(-?\d+)$", re.IGNORECASE)
+
+def _get_delay_override(tag_ids, id_to_label, title="unknown"):
+    """Return a timedelta override if a delayby_<N> tag is found, else None.
+    If multiple matching tags are found, falls back to None and logs a warning."""
+    matches = []
+    for tid in tag_ids:
+        label = id_to_label.get(int(tid), "")
+        m = _DELAY_TAG_RE.match(label)
+        if m:
+            matches.append(int(m.group(1)))
+    if len(matches) > 1:
+        log.info("Multiple delayby_ tags found for %s, falling back to default delay", title)
+        return None
+    if matches:
+        log.debug("Using delay override of %d min for %s", matches[0], title)
+        return timedelta(minutes=matches[0])
+    return None
 
 def _api(path:str)->str:
     return f"{Config.SONARR_URL}{path}"
@@ -68,6 +88,13 @@ def _run_once_inner():
             if season_pack_tag_id in s.get("tags", []):
                 season_pack_series.add(s["id"])
 
+    # Build per-series delay overrides from delayby_<N> tags
+    series_delay_override = {}
+    for s in series:
+        override = _get_delay_override(s.get("tags", []), id_to_label, s.get("title", f"id:{s['id']}"))
+        if override is not None:
+            series_delay_override[s["id"]] = override
+
     tracked = []
     for s in series:
         if not s.get("monitored"): continue
@@ -81,7 +108,7 @@ def _run_once_inner():
                 tracked.append((s["id"], season["seasonNumber"]))
     assessed = 0
 
-    delay = timedelta(minutes=Config.DELAY_MINUTES)
+    default_delay = timedelta(minutes=Config.DELAY_MINUTES)
     now = datetime.now(timezone.utc)
 
     eps_to_monitor = []
@@ -96,6 +123,9 @@ def _run_once_inner():
         if sid not in series_episodes_to_check:
             series_episodes_to_check[sid] = []
         series_episodes_to_check[sid].extend(eps)
+
+        # Resolve effective delay for this series (per-series override or global default)
+        effective_delay = series_delay_override.get(sid, default_delay)
 
         # Check if this series has season pack mode enabled
         use_season_pack_mode = sid in season_pack_series
@@ -114,7 +144,7 @@ def _run_once_inner():
                 air = trigger_episode.get("airDateUtc")
                 try:
                     air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
-                    threshold = air_dt + delay
+                    threshold = air_dt + effective_delay
 
                     # Check if trigger episode threshold has been met
                     if now >= threshold:
@@ -217,7 +247,7 @@ def _run_once_inner():
                     continue
                 if Config.SKIP_IF_FILE and e.get("hasFile"):
                     continue
-                threshold = air_dt + delay
+                threshold = air_dt + effective_delay
                 monitored = bool(e.get("monitored", False))
                 series_title = series_map.get(sid, "Unknown Series")
                 season_number = season
@@ -281,7 +311,7 @@ def _run_once_inner():
                 # Check if episode could be re-monitored in the future
                 try:
                     air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
-                    threshold = air_dt + delay
+                    threshold = air_dt + series_delay_override.get(sid, default_delay)
 
                     # Keep tag if episode hasn't aired yet (will need re-monitoring later)
                     if air_dt > now:
