@@ -1,4 +1,4 @@
-import logging, json
+import logging, json, re
 from datetime import datetime, timedelta, timezone
 import requests
 from requests.exceptions import ReadTimeout
@@ -6,6 +6,25 @@ import time
 from core.config import Config
 
 log = logging.getLogger("radarr")
+
+_DELAY_TAG_RE = re.compile(r"^delayby_(-?\d+)$", re.IGNORECASE)
+
+def _get_delay_override(tag_ids, id_to_label, title="unknown"):
+    """Return a timedelta override if a delayby_<N> tag is found, else None.
+    If multiple matching tags are found, falls back to None and logs a warning."""
+    matches = []
+    for tid in tag_ids:
+        label = id_to_label.get(int(tid), "")
+        m = _DELAY_TAG_RE.match(label)
+        if m:
+            matches.append(int(m.group(1)))
+    if len(matches) > 1:
+        log.info("Multiple delayby_ tags found for %s, falling back to default delay", title)
+        return None
+    if matches:
+        log.debug("Using delay override of %d min for %s", matches[0], title)
+        return timedelta(minutes=matches[0])
+    return None
 
 def _api(path: str) -> str:
     return f"{Config.RADARR_URL}{path}"
@@ -87,7 +106,7 @@ def _run_once():
 
     id_to_label, label_to_id = _tags_map()
     auto_tag_id = _ensure_tag(Config.AUTO_TAG_NAME, label_to_id)
-    delay = timedelta(minutes=Config.DELAY_MINUTES)
+    default_delay = timedelta(minutes=Config.DELAY_MINUTES)
     remonitor_window = timedelta(days=Config.RADARR_REMONITOR_WINDOW_DAYS) if Config.RADARR_REMONITOR_WINDOW_DAYS > 0 else None
     now = datetime.now(timezone.utc)
 
@@ -100,6 +119,7 @@ def _run_once():
         if Config.SKIP_IF_FILE and _has_file(m):
             continue
 
+        delay = _get_delay_override(m.get("tags", []), id_to_label, title) or default_delay
         release = _pick_release(m)
         monitored = bool(m.get("monitored", False))
         has_auto  = auto_tag_id in set(m.get("tags", []))
