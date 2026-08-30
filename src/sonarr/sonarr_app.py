@@ -11,6 +11,27 @@ AIR_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 _DELAY_TAG_RE = re.compile(r"^delayby_(-?\d+)$", re.IGNORECASE)
 
+# Placeholder episode titles that indicate metadata hasn't landed yet
+_TBA_TITLES = {"tba", "tbd"}
+
+# Only refresh episodes that aired recently. Sonarr's own "Episode Title Required"
+# grace period is 48h, after which it imports as TBA regardless, so there is little
+# value in refreshing beyond that. Bounded so episodes that never get a real title
+# (specials, some anime) don't get refreshed indefinitely.
+_TBA_WINDOW = timedelta(hours=72)
+
+# Decouples refresh frequency from trigger frequency (SLEEP_MINUTES plus webhooks).
+_TBA_COOLDOWN = timedelta(minutes=60)
+
+# series_id -> datetime of last RefreshSeries. In-memory only; a restart just means
+# one extra refresh per affected series.
+_tba_refresh_last = {}
+
+def _is_tba_title(title) -> bool:
+    """True if an episode title is missing, blank, or a TBA/TBD placeholder."""
+    t = (title or "").strip()
+    return not t or t.lower() in _TBA_TITLES
+
 def _get_delay_override(tag_ids, id_to_label, title="unknown"):
     """Return a timedelta override if a delayby_<N> tag is found, else None.
     If multiple matching tags are found, falls back to None and logs a warning."""
@@ -38,8 +59,11 @@ def _req(method:str, path:str, **kw):
     if method.upper() in ("POST","PUT","PATCH","DELETE") and Config.DRY_RUN:
         payload = kw.get("json") or kw.get("data")
         log.info("[DRY] %s %s -> %s", method.upper(), path, json_module.dumps(payload) if payload else "(no body)")
-        class Dummy: ok=True; status_code=200; 
-        def json(self): return {}; text=""
+        class Dummy:
+            ok=True
+            status_code=200
+            def json(self): return {}
+            text=""
         return Dummy()
     return s.request(method.upper(), url, timeout=30, **kw)
 
@@ -58,6 +82,79 @@ def _ensure_tag(label, label_to_id):
         _, rev = _tags_map()
         return rev.get(label.lower())
     raise RuntimeError("Failed to ensure tag")
+
+def _refresh_tba_series(series_episodes, series_map, eps_to_monitor, eps_to_unmonitor, now):
+    """Trigger a Sonarr metadata refresh for series with recently-aired TBA episodes.
+
+    Some shows don't publish episode titles to TheTVDB until after the episode
+    airs. Sonarr's natural refresh cycle is ~12 hours, so a monitored episode can
+    be grabbed and imported while its title is still "TBA", baking that into the
+    filename. Nudging Sonarr to refresh gets the real title in before the import
+    happens.
+
+    TheTVDB often still reports TBA at the moment we re-monitor, so this retries on
+    each run until the title lands or the episode falls outside _TBA_WINDOW.
+
+    Returns the number of series refreshed.
+    """
+    monitored_now = set(eps_to_monitor)
+    unmonitored_now = set(eps_to_unmonitor)
+    refreshed = 0
+
+    for sid, eps in series_episodes.items():
+        series_title = series_map.get(sid, f"id:{sid}")
+        tba_count = 0
+
+        for e in eps:
+            air = e.get("airDateUtc")
+            if not air:
+                continue
+            try:
+                air_dt = datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+
+            # Only episodes that have aired and are still within the refresh window
+            if air_dt > now or (now - air_dt) > _TBA_WINDOW:
+                continue
+
+            # The cached episode dicts are pre-update, so episodes we re-monitored
+            # this run still read monitored=False. That's the case we care about most.
+            eid = e.get("id")
+            if eid in unmonitored_now:
+                continue
+            if not (e.get("monitored", False) or eid in monitored_now):
+                continue
+
+            # Deliberately not filtered on hasFile - an already-imported TBA episode
+            # still benefits from the real title reaching Sonarr's database.
+            if _is_tba_title(e.get("title")):
+                tba_count += 1
+
+        if not tba_count:
+            continue
+
+        last = _tba_refresh_last.get(sid)
+        if last is not None and (now - last) < _TBA_COOLDOWN:
+            log.debug("TBA refresh on cooldown for %s (last %s)", series_title, last.isoformat())
+            continue
+
+        log.info("TBA REFRESH: %s (%d episode(s) with TBA titles)", series_title, tba_count)
+        payload = {"name": "RefreshSeries", "seriesId": sid}
+        try:
+            if Config.DRY_RUN:
+                log.info("[DRY] POST /api/v3/command -> %s", json_module.dumps(payload))
+            else:
+                _req("POST", "/api/v3/command", json=payload)
+            # Record in dry-run too, so dry-run logs mirror live cadence
+            _tba_refresh_last[sid] = now
+            refreshed += 1
+        except Exception as exc:
+            # Don't let a failed refresh abort the run - run_once() would retry the
+            # entire pass and redo every monitor/unmonitor PUT.
+            log.warning("TBA refresh failed for %s: %s", series_title, str(exc))
+
+    return refreshed
 
 def _run_once_inner():
     id_to_label, label_to_id = _tags_map()
@@ -287,6 +384,13 @@ def _run_once_inner():
         else:
             _req("PUT","/api/v3/episode/monitor", json={"episodeIds": eps_to_monitor, "monitored": True})
 
+    # Nudge Sonarr to refresh metadata for monitored episodes still titled TBA
+    tba_refreshed = 0
+    if Config.SONARR_REFRESH_TBA:
+        tba_refreshed = _refresh_tba_series(
+            series_episodes_to_check, series_map, eps_to_monitor, eps_to_unmonitor, now
+        )
+
     # Remove auto-tag from series that had episodes re-monitored
     # BUT only if there are no remaining episodes that still need re-monitoring
     for sid in series_to_remove_tag:
@@ -350,6 +454,9 @@ def _run_once_inner():
         log.info("SUMMARY: Assessed %d, Managed %d, Unmonitored %d, Monitored %d", assessed, len(eps_to_monitor) + len(eps_to_unmonitor), len(eps_to_unmonitor), len(eps_to_monitor))
     else:
         log.info("SUMMARY: Assessed %d, Managed 0, Unmonitored 0, Monitored 0", assessed)
+
+    if tba_refreshed:
+        log.info("TBA REFRESH SUMMARY: %d series refreshed", tba_refreshed)
 
 def run_once():
     log.info("Sonarr app starting…")

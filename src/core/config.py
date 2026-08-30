@@ -32,6 +32,7 @@ class Config:
     SONARR_API_KEY        = os.environ.get("SONARR_API_KEY", "")
     SEASON_PACK_MODE      = env_bool("SEASON_PACK_MODE", "0")
     SEASON_PACK_MODE_TAG  = os.environ.get("SEASON_PACK_MODE_TAG", "season-pack")
+    SONARR_REFRESH_TBA    = env_bool("SONARR_REFRESH_TBA", "0")
 
     # Re-monitoring windows (0 = disabled/unlimited)
     RADARR_REMONITOR_WINDOW_DAYS = env_int("RADARR_REMONITOR_WINDOW_DAYS", "30")
