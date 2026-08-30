@@ -202,7 +202,7 @@ With webhooks, unmonitarr processes new content **immediately** when you add it,
 
 ### Sonarr (TV Shows)
 
-1. unmonitarr only manages episodes in the **latest monitored season** of each series
+1. unmonitarr manages episodes in **every monitored season** of each series
 2. For each episode, it checks the air date:
    - Episodes without air dates are skipped
    - Episodes with existing files are skipped (if `SKIP_IF_FILE=1`)
@@ -277,6 +277,7 @@ If a series or movie has this tag, it takes priority over `DELAY_MINUTES`. If mu
 | `SONARR_API_KEY` | *required* | Sonarr API key (Settings → General → Security) |
 | `SEASON_PACK_MODE` | `0` | Enable season pack mode: `1` = yes, `0` = no (see below) |
 | `SEASON_PACK_MODE_TAG` | `season-pack` | Tag to identify series that should use season pack mode |
+| `SONARR_REFRESH_TBA` | `0` | Refresh metadata for monitored episodes still titled TBA: `1` = yes, `0` = no (see below) |
 
 #### Season Pack Mode
 
@@ -292,6 +293,32 @@ Season pack mode addresses shows where Sonarr has staggered weekly air dates, bu
 - Reality: Full season releases Nov 1st as a season pack
 - With season pack mode: All episodes re-monitored Nov 1st + delay
 - Without: Episodes re-monitor individually over several weeks, missing the season pack swarm
+
+#### TBA Metadata Refresh
+
+Some shows don't publish episode titles to TheTVDB until after the episode airs. Sonarr refreshes series metadata on its own ~12 hour cycle, so an episode can be grabbed and imported while its title is still `TBA`, baking that into the filename.
+
+With `SONARR_REFRESH_TBA=1`, unmonitarr asks Sonarr to refresh the series as soon as it re-monitors an episode that's still titled TBA, so the real title has a chance to land before the import happens.
+
+**How it works:**
+- Looks for monitored episodes that have aired but are still titled `TBA`, `TBD`, or have no title at all
+- Triggers a `Refresh Series` command in Sonarr for that series (one command per series, not per episode)
+- TheTVDB often still reports TBA at the moment an episode is re-monitored, so this retries on each run until the title lands
+- Retries are limited to episodes that aired within the last **72 hours**, at most one refresh per series per **hour**
+- Episodes that already have a file are still included, since the title matters in Sonarr's database either way
+
+**Important — check your Sonarr import setting:**
+
+This works best alongside Sonarr's own guard at Settings → Media Management → Importing → **Episode Title Required**. Set to `Always` or `Only for Bulk Season Releases`, Sonarr holds the download in the queue rather than importing with a TBA title, and unmonitarr's refresh unblocks it sooner with the correct name. If it's set to `Never`, Sonarr imports immediately and the filename will still be TBA — unmonitarr can only correct the title in Sonarr's database at that point.
+
+Note that Sonarr does not rename existing files when metadata changes, so anything already imported as TBA needs a manual rename.
+
+**Example:**
+- An episode airs 9:00 PM, title in Sonarr is `TBA`
+- `DELAY_MINUTES=120`, so unmonitarr re-monitors it at 11:00 PM and triggers a refresh
+- TheTVDB still says TBA, so unmonitarr tries again each hour
+- 1:00 AM: the real title lands, Sonarr imports the release with the correct name
+- No further refreshes, because the title is no longer TBA
 
 ---
 
@@ -382,6 +409,24 @@ Season pack mode addresses shows where Sonarr has staggered weekly air dates, bu
 ```yaml
 - IGNORE_TAG_NAME=ignore
 ```
+
+### Use Case 7: Fix TBA Episode Titles
+
+**Goal**: Stop episodes importing with `TBA` in the filename, on shows that don't publish titles until after air.
+
+**Configuration**:
+```yaml
+- SONARR_REFRESH_TBA=1
+```
+
+**Steps**:
+1. Set `SONARR_REFRESH_TBA=1` and recreate the container
+2. In Sonarr, check Settings → Media Management → Importing → **Episode Title Required** is set to `Always` or `Only for Bulk Season Releases`
+
+**Useful for:**
+- Shows where TheTVDB publishes episode titles hours after the episode airs
+- Avoiding the manual "refresh series metadata" click every week
+- Any library where filenames need to be correct on first import
 
 ---
 
