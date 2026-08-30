@@ -38,4 +38,5 @@ services:
       - SONARR_REMONITOR_WINDOW_DAYS=14  # Only re-monitor episodes aired within X days (0=disabled)
       - SEASON_PACK_MODE=0               # Enable season pack mode (1=enabled, 0=disabled)
       - SEASON_PACK_MODE_TAG=season-pack # Tag for series using season pack mode
+      - SONARR_REFRESH_TBA=0             # Refresh metadata for monitored TBA episodes (1=enabled, 0=disabled)
     restart: unless-stopped
