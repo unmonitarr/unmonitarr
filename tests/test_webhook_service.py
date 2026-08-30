@@ -1,30 +1,45 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
 from services.webhook_service import app
-from core.job_queue import job_queue, add_job_to_queue
+
 
 class TestWebhookService(unittest.TestCase):
     def setUp(self):
-        self.test_queue = job_queue
+        self.client = app.test_client()
 
-    @patch('services.webhook_service.add_job_to_queue')
+    @patch("services.webhook_service.add_job")
     def test_trigger_sonarr(self, mock_add_job):
-        with app.test_client() as client:
-            response = client.post('/trigger/sonarr')
-            self.assertEqual(response.status_code, 202)
-            mock_add_job.assert_called_with('sonarr', 'webhook')
+        response = self.client.post("/trigger/sonarr")
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.get_json(), {"status": "queued", "job": "sonarr"})
+        mock_add_job.assert_called_once_with("sonarr", triggered_by="webhook")
 
-    @patch('services.webhook_service.add_job_to_queue')
+    @patch("services.webhook_service.add_job")
     def test_trigger_radarr(self, mock_add_job):
-        with app.test_client() as client:
-            response = client.post('/trigger/radarr')
-            self.assertEqual(response.status_code, 202)
-            mock_add_job.assert_called_with('radarr', 'webhook')
+        response = self.client.post("/trigger/radarr")
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.get_json(), {"status": "queued", "job": "radarr"})
+        mock_add_job.assert_called_once_with("radarr", triggered_by="webhook")
 
-    def test_trigger_invalid(self):
-        with app.test_client() as client:
-            response = client.post('/trigger/invalidapp')
-            self.assertEqual(response.status_code, 400)
+    @patch("services.webhook_service.add_job")
+    def test_unknown_app_is_not_routed(self, mock_add_job):
+        # There is no /trigger/<app> catch-all, so an unknown app is simply Not Found
+        response = self.client.post("/trigger/invalidapp")
+        self.assertEqual(response.status_code, 404)
+        mock_add_job.assert_not_called()
 
-if __name__ == '__main__':
+    @patch("services.webhook_service.add_job")
+    def test_get_is_not_allowed_on_triggers(self, mock_add_job):
+        response = self.client.get("/trigger/sonarr")
+        self.assertEqual(response.status_code, 405)
+        mock_add_job.assert_not_called()
+
+    def test_health_endpoint(self):
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"status": "healthy", "service": "unmonitarr"})
+
+
+if __name__ == "__main__":
     unittest.main()
