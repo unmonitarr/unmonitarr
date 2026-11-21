@@ -1,7 +1,6 @@
-import json as json_module
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from common import arr_client
 from common.logger import get_logger
@@ -47,25 +46,25 @@ def _get_delay_override(tag_ids, id_to_label, title="unknown"):
     return arr_client.get_delay_override(tag_ids, id_to_label, title, log)
 
 
-def _tag_series(sid, auto_tag_id):
-    """Make sure the auto-tag is on a series. Live runs only."""
-    if Config.DRY_RUN:
-        return
-    s = _req("GET", f"/api/v3/series/{sid}").json()
-    if auto_tag_id not in s.get("tags", []):
-        s["tags"] = s.get("tags", []) + [auto_tag_id]
-        _req("PUT", f"/api/v3/series/{sid}", json=s)
+def _get(path, **kw):
+    return arr_client.get_json(_req, path, **kw)
 
 
-def _untag_series(sid, auto_tag_id):
-    s = _req("GET", f"/api/v3/series/{sid}").json()
-    if auto_tag_id in s.get("tags", []):
-        s["tags"] = [t for t in s.get("tags", []) if t != auto_tag_id]
-        _req("PUT", f"/api/v3/series/{sid}", json=s)
+def _edit_series_tags(series_ids, tag_id, mode):
+    """Add or remove a tag on several series in one call. Returns {series_id: error} for failures."""
+    return arr_client.bulk_edit(_req, "/api/v3/series/editor", "seriesIds", series_ids,
+                                {"tags": [tag_id], "applyTags": mode})
 
 
-def _parse_air(air):
-    return datetime.strptime(air, AIR_FMT).replace(tzinfo=timezone.utc)
+def _air_date(p, sid, season, e):
+    """An episode's air date, or None. Logs a warning if the date is present but unreadable."""
+    air = e.get("airDateUtc")
+    if not air:
+        return None
+    air_dt = arr_client.parse_iso(air)
+    if air_dt is None:
+        log.warning("Skipping episode with unreadable air date %r: %s", air, p.describe(sid, season, e))
+    return air_dt
 
 
 def _is_tba_title(title) -> bool:
@@ -81,13 +80,16 @@ class _Pass:
     """State for one run: inputs that don't change, and the decisions made so far."""
     now: datetime
     auto_tag_id: int
-    remonitor_window: timedelta  # None = unlimited
+    remonitor_window: Optional[timedelta]  # None = unlimited
     series_map: dict
     series_with_auto_tag: set
     eps_to_monitor: list = field(default_factory=list)
     eps_to_unmonitor: list = field(default_factory=list)
-    series_to_remove_tag: set = field(default_factory=set)
+    unmonitor_series: dict = field(default_factory=dict)  # episode id -> series id
+    series_to_tag: set = field(default_factory=set)
     assessed: int = 0
+    _monitor_set: set = field(default_factory=set, repr=False)
+    _unmonitor_set: set = field(default_factory=set, repr=False)
 
     def within_window(self, air_dt):
         return self.remonitor_window is None or (self.now - air_dt) <= self.remonitor_window
@@ -107,7 +109,20 @@ class _Pass:
         else:
             log.info("UNMONITOR: %s", self.describe(sid, season, e))
         self.eps_to_unmonitor.append(e["id"])
-        _tag_series(sid, self.auto_tag_id)
+        self.unmonitor_series[e["id"]] = sid
+        if sid not in self.series_with_auto_tag:
+            self.series_to_tag.add(sid)
+
+    def monitored_after_pass(self, e):
+        """Whether an episode will be monitored once this pass's changes are applied."""
+        eid = e.get("id")
+        if eid in self._unmonitor_set:
+            return False
+        return bool(e.get("monitored", False)) or eid in self._monitor_set
+
+    def freeze(self):
+        self._monitor_set = set(self.eps_to_monitor)
+        self._unmonitor_set = set(self.eps_to_unmonitor)
 
 
 def _process_standard(p, sid, season, eps, delay):
@@ -120,9 +135,8 @@ def _process_standard(p, sid, season, eps, delay):
             if e.get("monitored", False):
                 p.unmonitor(sid, season, e, no_air_date=True)
             continue
-        try:
-            air_dt = _parse_air(air)
-        except Exception:
+        air_dt = _air_date(p, sid, season, e)
+        if air_dt is None:
             continue
         if Config.SKIP_IF_FILE and e.get("hasFile"):
             continue
@@ -134,7 +148,6 @@ def _process_standard(p, sid, season, eps, delay):
             if sid in p.series_with_auto_tag and p.within_window(air_dt):
                 log.info("MONITOR: %s", p.describe(sid, season, e))
                 p.eps_to_monitor.append(e["id"])
-                p.series_to_remove_tag.add(sid)
         elif p.now < threshold and monitored:
             p.unmonitor(sid, season, e)
 
@@ -146,7 +159,9 @@ def _process_season_pack(p, sid, season, eps, delay):
     if not trigger:
         return
 
-    trigger_air = _parse_air(trigger["airDateUtc"])
+    trigger_air = _air_date(p, sid, season, trigger)
+    if trigger_air is None:
+        return
     trigger_threshold = trigger_air + delay
 
     if p.now >= trigger_threshold:
@@ -166,7 +181,6 @@ def _process_season_pack(p, sid, season, eps, delay):
         if added > 0:
             log.info("SEASON PACK MODE: Re-monitored %d episodes for %s S%02d",
                      added, p.series_map.get(sid, "Unknown Series"), season)
-            p.series_to_remove_tag.add(sid)
         return
 
     # Trigger not reached yet: unmonitor anything still monitored in the season.
@@ -178,28 +192,26 @@ def _process_season_pack(p, sid, season, eps, delay):
             if e.get("monitored", False):
                 p.unmonitor(sid, season, e, no_air_date=True)
             continue
-        try:
-            _parse_air(air)
-        except Exception:
+        if _air_date(p, sid, season, e) is None:
             continue
         if p.now < trigger_threshold and e.get("monitored", False):
             p.unmonitor(sid, season, e)
 
 
 def _series_needs_tag(p, eps, delay):
-    """True if any episode could still need re-monitoring later."""
+    """True if any episode may still need re-monitoring, judged on state after this pass.
+
+    Errs towards keeping the tag: removing it too early strands an episode unmonitored for
+    good, while keeping it too long is harmless.
+    """
     for e in eps:
-        if e.get("monitored", False):
+        if p.monitored_after_pass(e):
             continue
         if Config.SKIP_IF_FILE and e.get("hasFile"):
             continue
-        air = e.get("airDateUtc")
-        if not air:
-            continue
-        try:
-            air_dt = _parse_air(air)
-        except Exception:
-            continue
+        air_dt = arr_client.parse_iso(e.get("airDateUtc"))
+        if air_dt is None:
+            return True        # no air date yet; may get one later
         if air_dt > p.now:
             return True        # hasn't aired yet
         if p.now < air_dt + delay:
@@ -232,12 +244,8 @@ def _refresh_tba_series(series_episodes, series_map, eps_to_monitor, eps_to_unmo
         tba_count = 0
 
         for e in eps:
-            air = e.get("airDateUtc")
-            if not air:
-                continue
-            try:
-                air_dt = _parse_air(air)
-            except Exception:
+            air_dt = arr_client.parse_iso(e.get("airDateUtc"))
+            if air_dt is None:
                 continue
 
             # Only episodes that have aired and are still within the refresh window
@@ -268,10 +276,7 @@ def _refresh_tba_series(series_episodes, series_map, eps_to_monitor, eps_to_unmo
         log.info("TBA REFRESH: %s (%d episode(s) with TBA titles)", series_title, tba_count)
         payload = {"name": "RefreshSeries", "seriesId": sid}
         try:
-            if Config.DRY_RUN:
-                log.info("[DRY] POST /api/v3/command -> %s", json_module.dumps(payload))
-            else:
-                _req("POST", "/api/v3/command", json=payload)
+            _req("POST", "/api/v3/command", json=payload)  # logged, not sent, in a dry run
             # Record in dry-run too, so dry-run logs mirror live cadence
             _tba_refresh_last[sid] = now
             refreshed += 1
@@ -281,6 +286,47 @@ def _refresh_tba_series(series_episodes, series_map, eps_to_monitor, eps_to_unmo
             log.warning("TBA refresh failed for %s: %s", series_title, str(exc))
 
     return refreshed
+
+
+def _apply(p, series_episodes, series_delay_override, default_delay):
+    """Write this pass's decisions to Sonarr.
+
+    Order matters, so a failure part-way can't strand an episode unmonitored without the
+    auto-tag (it would never be re-monitored):
+      1. tag series, then unmonitor their episodes
+      2. re-monitor episodes, then remove tags that are no longer needed
+    """
+    failed = _edit_series_tags(p.series_to_tag, p.auto_tag_id, "add")
+    for sid, err in failed.items():
+        log.error("Couldn't add auto-tag to %s, leaving its episodes monitored: %s",
+                  p.series_map.get(sid, f"id:{sid}"), err)
+    if failed:
+        p.eps_to_unmonitor = [eid for eid in p.eps_to_unmonitor if p.unmonitor_series[eid] not in failed]
+    p.series_with_auto_tag |= (p.series_to_tag - set(failed))
+
+    if p.eps_to_unmonitor:
+        _req("PUT", "/api/v3/episode/monitor", json={"episodeIds": p.eps_to_unmonitor, "monitored": False})
+    if p.eps_to_monitor:
+        _req("PUT", "/api/v3/episode/monitor", json={"episodeIds": p.eps_to_monitor, "monitored": True})
+
+    # Every tagged series we looked at this pass is re-checked, so a removal that fails
+    # (or a tag left behind by an older version) is cleaned up on a later pass
+    p.freeze()
+    to_untag = set()
+    for sid in p.series_with_auto_tag & set(series_episodes):
+        delay = series_delay_override.get(sid, default_delay)
+        if _series_needs_tag(p, series_episodes[sid], delay):
+            log.debug("Keeping auto-tag on %s (episodes still pending)", p.series_map.get(sid, f"id:{sid}"))
+        else:
+            log.info("Removing auto-tag from %s (nothing left to re-monitor)", p.series_map.get(sid, f"id:{sid}"))
+            to_untag.add(sid)
+    try:
+        failed = _edit_series_tags(to_untag, p.auto_tag_id, "remove")
+    except arr_client.ArrApiError as e:
+        failed = {sid: e for sid in to_untag}
+    for sid, err in failed.items():
+        log.warning("Couldn't remove auto-tag from %s, will retry next run: %s",
+                    p.series_map.get(sid, f"id:{sid}"), err)
 
 
 def _run_once_inner():
@@ -295,7 +341,7 @@ def _run_once_inner():
     remonitor_window = (timedelta(days=Config.SONARR_REMONITOR_WINDOW_DAYS)
                         if Config.SONARR_REMONITOR_WINDOW_DAYS > 0 else None)
 
-    series = _req("GET", "/api/v3/series").json()
+    series = _get("/api/v3/series")
     series_map = {s["id"]: s["title"] for s in series}
     series_with_auto_tag = {s["id"] for s in series if auto_tag_id in s.get("tags", [])}
 
@@ -332,46 +378,20 @@ def _run_once_inner():
     series_episodes = {}  # sid -> every episode fetched for it this run
 
     for sid, season in tracked:
-        eps = _req("GET", "/api/v3/episode", params={"seriesId": sid, "seasonNumber": season}).json()
+        eps = _get("/api/v3/episode", params={"seriesId": sid, "seasonNumber": season})
         series_episodes.setdefault(sid, []).extend(eps)
         delay = series_delay_override.get(sid, default_delay)
 
         if sid in season_pack_series:
-            try:
-                _process_season_pack(p, sid, season, eps, delay)
-            except Exception:
-                continue
+            _process_season_pack(p, sid, season, eps, delay)
         else:
             _process_standard(p, sid, season, eps, delay)
 
-    if p.eps_to_unmonitor:
-        if Config.DRY_RUN:
-            log.info("[DRY] PUT /api/v3/episode/monitor -> %s",
-                     json_module.dumps({"episodeIds": p.eps_to_unmonitor, "monitored": False}))
-        else:
-            _req("PUT", "/api/v3/episode/monitor", json={"episodeIds": p.eps_to_unmonitor, "monitored": False})
-    if p.eps_to_monitor:
-        if Config.DRY_RUN:
-            log.info("[DRY] PUT /api/v3/episode/monitor -> %s",
-                     json_module.dumps({"episodeIds": p.eps_to_monitor, "monitored": True}))
-        else:
-            _req("PUT", "/api/v3/episode/monitor", json={"episodeIds": p.eps_to_monitor, "monitored": True})
+    _apply(p, series_episodes, series_delay_override, default_delay)
 
     tba_refreshed = 0
     if Config.SONARR_REFRESH_TBA:
         tba_refreshed = _refresh_tba_series(series_episodes, series_map, p.eps_to_monitor, p.eps_to_unmonitor, p.now)
-
-    # Remove the auto-tag from series that had episodes re-monitored, unless some
-    # episode could still need re-monitoring later
-    for sid in p.series_to_remove_tag:
-        delay = series_delay_override.get(sid, default_delay)
-        if _series_needs_tag(p, series_episodes.get(sid, []), delay):
-            log.info("Keeping auto-tag on series (episodes still need re-monitoring): %s",
-                     series_map.get(sid, f"id:{sid}"))
-        elif Config.DRY_RUN:
-            log.info("[DRY] Removing auto-tag from series: %s", series_map.get(sid, f"id:{sid}"))
-        else:
-            _untag_series(sid, auto_tag_id)
 
     managed = len(p.eps_to_monitor) + len(p.eps_to_unmonitor)
     log.info("SUMMARY: Assessed %d, Managed %d, Unmonitored %d, Monitored %d",
@@ -382,21 +402,12 @@ def _run_once_inner():
 
 
 def run_once():
+    """Run one pass. Returns True on success, False on failure, None if skipped."""
+    if not arr_client.is_configured("Sonarr", Config.ENABLE_SONARR, Config.SONARR_URL, Config.SONARR_API_KEY, log):
+        return None
     log.info("Sonarr app starting…")
-    if not (Config.ENABLE_SONARR and Config.SONARR_URL and Config.SONARR_API_KEY):
-        return
-
-    for attempt in range(1, 4):
-        try:
-            _run_once_inner()
-            return
-        except Exception as e:
-            if attempt < 3:
-                log.warning("Attempt %d/3 failed: %s", attempt, str(e))
-                time.sleep(5)
-            else:
-                log.error("Failed after 3 attempts: %s", str(e))
+    return arr_client.run_with_retries(_run_once_inner, "Sonarr", log)
 
 
 def run_sonarr():
-    run_once()
+    return run_once()

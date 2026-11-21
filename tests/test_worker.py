@@ -36,6 +36,14 @@ class TestJobWorker(unittest.TestCase):
         run_sonarr.assert_called_once()
         self.logger.info.assert_any_call("Starting sonarr job (triggered_by=scheduler)")
 
+    @patch("core.job_worker.run_sonarr", return_value=False)
+    def test_failed_run_is_not_reported_as_completed(self, run_sonarr):
+        self.queue.put(("sonarr", "webhook"))
+        self.drain(self.worker())
+        self.logger.warning.assert_any_call("sonarr job failed (triggered_by=webhook), see errors above")
+        self.assertNotIn("Completed sonarr job (triggered_by=webhook)",
+                         [c.args[0] for c in self.logger.info.call_args_list])
+
     def test_unknown_job_type_is_logged(self):
         self.queue.put(("unknown", "webhook"))
         self.drain(self.worker())

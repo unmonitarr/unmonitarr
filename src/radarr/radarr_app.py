@@ -1,7 +1,4 @@
-import time
 from datetime import datetime, timedelta, timezone
-
-from requests.exceptions import ReadTimeout
 
 from common import arr_client
 from common.logger import get_logger
@@ -28,21 +25,14 @@ def _get_delay_override(tag_ids, id_to_label, title="unknown"):
     return arr_client.get_delay_override(tag_ids, id_to_label, title, log)
 
 
-def _parse_iso(s):
-    if not s: return None
-    s = s.strip()
-    if s.endswith("Z"): s = s[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
-    except Exception:
-        return None
+def _get(path, **kw):
+    return arr_client.get_json(_req, path, **kw)
+
 
 def _pick_release(movie):
-    digital  = _parse_iso(movie.get("digitalRelease"))
-    physical = _parse_iso(movie.get("physicalRelease"))
-    cinemas  = _parse_iso(movie.get("inCinemas"))
+    digital  = arr_client.parse_iso(movie.get("digitalRelease"))
+    physical = arr_client.parse_iso(movie.get("physicalRelease"))
+    cinemas  = arr_client.parse_iso(movie.get("inCinemas"))
 
     if Config.PREFERRED_RELEASE == "digital":
         return digital or physical or (None if Config.IGNORE_INCINEMAS else cinemas)
@@ -57,90 +47,83 @@ def _has_file(movie):
     if "hasFile" in movie: return bool(movie["hasFile"])
     return bool(movie.get("movieFile"))
 
-def _apply_tags(movie_id, tag_id, mode):
-    payload = {"movieIds":[movie_id], "tags":[tag_id], "applyTags": mode}
-    _req("PUT","/api/v3/movie/editor", json=payload)
+def _edit_movies(movie_ids, monitored, tag_id, apply_tags):
+    """Set monitored and add/remove the auto-tag in one call, so the two can't drift apart.
 
-def _set_monitored(movie_id, monitored):
-    _req("PUT","/api/v3/movie/editor", json={"movieIds":[movie_id], "monitored": monitored})
+    Returns {movie_id: error} for movies that couldn't be changed.
+    """
+    return arr_client.bulk_edit(_req, "/api/v3/movie/editor", "movieIds", movie_ids,
+                                {"monitored": monitored, "tags": [tag_id], "applyTags": apply_tags})
+
 
 def _run_once():
-    if not (Config.ENABLE_RADARR and Config.RADARR_URL and Config.RADARR_API_KEY):
-        return
-
-    log.info("Radarr app starting…")
-
     id_to_label, label_to_id = _tags_map()
     auto_tag_id = _ensure_tag(Config.AUTO_TAG_NAME, label_to_id)
     default_delay = timedelta(minutes=Config.DELAY_MINUTES)
     remonitor_window = timedelta(days=Config.RADARR_REMONITOR_WINDOW_DAYS) if Config.RADARR_REMONITOR_WINDOW_DAYS > 0 else None
     now = datetime.now(timezone.utc)
+    ignore = (Config.IGNORE_TAG_NAME or "").lower()
+    dry = "[DRY] " if Config.DRY_RUN else ""
 
-    movies = _req("GET","/api/v3/movie").json()
-    assessed = managed = unmonitored = remonitored = 0
+    movies = _get("/api/v3/movie")
+    titles = {}
+    to_unmonitor, to_remonitor = [], []
+    assessed = 0
     for m in movies:
         title = m.get("title", f"id:{m.get('id')}")
-        if Config.IGNORE_TAG_NAME and any(id_to_label.get(tid,"").lower()==Config.IGNORE_TAG_NAME.lower() for tid in m.get("tags",[])):
+        titles[int(m["id"])] = title
+        if ignore and any(id_to_label.get(tid, "").lower() == ignore for tid in m.get("tags", [])):
             continue
         if Config.SKIP_IF_FILE and _has_file(m):
             continue
 
-        delay = _get_delay_override(m.get("tags", []), id_to_label, title) or default_delay
+        override = _get_delay_override(m.get("tags", []), id_to_label, title)
+        delay = override if override is not None else default_delay
         release = _pick_release(m)
         monitored = bool(m.get("monitored", False))
-        has_auto  = auto_tag_id in set(m.get("tags", []))
+        has_auto = auto_tag_id in set(m.get("tags", []))
 
         assessed += 1
 
-        # Handle items without release dates
         if not release:
             if monitored:
-                log.info("%sUNMONITOR (no release date): %s", "[DRY] " if Config.DRY_RUN else "", title)
-                _set_monitored(int(m["id"]), False)
-                _apply_tags(int(m["id"]), auto_tag_id, "add")
-                managed += 1
-                unmonitored += 1
+                log.info("%sUNMONITOR (no release date): %s", dry, title)
+                to_unmonitor.append(int(m["id"]))
             continue
 
         threshold = release + delay
 
         if monitored and now < threshold:
-            log.info("%sUNMONITOR: %s until %s", "[DRY] " if Config.DRY_RUN else "", title, threshold.isoformat())
-            _set_monitored(int(m["id"]), False)
-            _apply_tags(int(m["id"]), auto_tag_id, "add")
-            managed += 1
-            unmonitored += 1
+            log.info("%sUNMONITOR: %s until %s", dry, title, threshold.isoformat())
+            to_unmonitor.append(int(m["id"]))
         elif (not monitored) and has_auto and now >= threshold:
-            # Check if within re-monitoring window (if enabled)
-            within_window = True
-            if remonitor_window is not None:
-                within_window = (now - release) <= remonitor_window
+            if remonitor_window is None or (now - release) <= remonitor_window:
+                log.info("%sMONITOR: %s (past %s)", dry, title, threshold.isoformat())
+                to_remonitor.append(int(m["id"]))
 
-            if within_window:
-                log.info("%sMONITOR: %s (past %s)", "[DRY] " if Config.DRY_RUN else "", title, threshold.isoformat())
-                _set_monitored(int(m["id"]), True)
-                _apply_tags(int(m["id"]), auto_tag_id, "remove")
-                managed += 1
-                remonitored += 1
-    log.info("SUMMARY: Assessed %d, Managed %d, Unmonitored %d, Monitored %d", assessed, managed, unmonitored, remonitored)
+    failed_unmonitor = _edit_movies(to_unmonitor, False, auto_tag_id, "add")
+    for mid, err in failed_unmonitor.items():
+        log.error("Couldn't unmonitor %s: %s", titles.get(mid, f"id:{mid}"), err)
+    failed_remonitor = _edit_movies(to_remonitor, True, auto_tag_id, "remove")
+    for mid, err in failed_remonitor.items():
+        log.error("Couldn't re-monitor %s: %s", titles.get(mid, f"id:{mid}"), err)
+
+    unmonitored = len(to_unmonitor) - len(failed_unmonitor)
+    remonitored = len(to_remonitor) - len(failed_remonitor)
+    log.info("SUMMARY: Assessed %d, Managed %d, Unmonitored %d, Monitored %d",
+             assessed, unmonitored + remonitored, unmonitored, remonitored)
+    if failed_unmonitor or failed_remonitor:
+        log.warning("%d movie(s) couldn't be updated, see errors above",
+                    len(failed_unmonitor) + len(failed_remonitor))
+
 
 def run_once():
-    if not (Config.ENABLE_RADARR and Config.RADARR_URL and Config.RADARR_API_KEY):
-        return
-
-    max_retries = 3
-    for attempt in range(1, max_retries + 1):
-        try:
-            _run_once()
-            break
-        except ReadTimeout as e:
-            if attempt < max_retries:
-                log.warning("Retrying after timeout… (attempt %d)", attempt)
-                time.sleep(5)
-            else:
-                log.error("Failed after 3 attempts: %s", e)
+    """Run one pass. Returns True on success, False on failure, None if skipped."""
+    if not arr_client.is_configured("Radarr", Config.ENABLE_RADARR, Config.RADARR_URL, Config.RADARR_API_KEY, log):
+        return None
+    log.info("Radarr app starting…")
+    return arr_client.run_with_retries(_run_once, "Radarr", log)
 
 
 def run_radarr():
-    log.info("Radarr job triggered via job queue")
-    run_once()
+    return run_once()

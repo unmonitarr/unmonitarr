@@ -7,6 +7,8 @@ between equivalent endpoints, e.g. a full-object PUT versus a bulk editor call.
 """
 import copy
 import re
+
+from common.arr_client import raise_for_status
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -64,11 +66,23 @@ class _FakeArrBase:
     def __init__(self, tags):
         self.tags = [dict(t) for t in tags]
         self.calls = []  # (method, path, json, params)
+        self.failures = []  # (method, path regex, predicate on body, FakeResponse)
+
+    def fail(self, method, path_pattern, status_code=400, body=None, when=None):
+        """Make matching calls fail, as the real API would. `when(body)` narrows the match."""
+        self.failures.append((method.upper(), re.compile(path_pattern), when,
+                              FakeResponse(body if body is not None else [], status_code)))
 
     def __call__(self, method, path, **kw):
         method = method.upper()
-        self.calls.append((method, path, kw.get("json"), kw.get("params")))
-        return self._route(method, path, kw.get("json"), kw.get("params") or {})
+        body = kw.get("json")
+        self.calls.append((method, path, body, kw.get("params")))
+        for f_method, f_path, when, response in self.failures:
+            if f_method == method and f_path.fullmatch(path) and (when is None or when(body)):
+                raise_for_status(method, path, response)
+        response = self._route(method, path, body, kw.get("params") or {})
+        raise_for_status(method, path, response)
+        return response
 
     @property
     def writes(self):

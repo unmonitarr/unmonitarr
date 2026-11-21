@@ -48,7 +48,10 @@ class JobWorker:
         with lock:
             self.logger.info(f"Starting {job_type} job (triggered_by={triggered_by})")
             try:
-                self.job_functions[job_type]()
-                self.logger.info(f"Completed {job_type} job (triggered_by={triggered_by})")
+                result = self.job_functions[job_type]()
+                if result is False:
+                    self.logger.warning(f"{job_type} job failed (triggered_by={triggered_by}), see errors above")
+                else:
+                    self.logger.info(f"Completed {job_type} job (triggered_by={triggered_by})")
             except Exception as e:
                 self.logger.error(f"Error processing {job_type} job: {e}", exc_info=True)

@@ -4,16 +4,20 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import radarr.radarr_app as radarr_app
+from common.arr_client import ArrApiError
 from tests.fakes import FakeRadarr, http_transport, make_config
 
 AUTO = 1
 IGNORE = 2
 DELAY_TAG = 3
 
+ZERO_DELAY_TAG = 4
+
 TAGS = (
     {"id": AUTO, "label": "auto-unmonitored"},
     {"id": IGNORE, "label": "ignore"},
     {"id": DELAY_TAG, "label": "delayby_10"},
+    {"id": ZERO_DELAY_TAG, "label": "delayby_0"},
 )
 
 
@@ -130,13 +134,72 @@ class TestRadarrRun(RadarrRunTestCase):
         self.assertTrue(any("SUMMARY: Assessed 2, Managed 2, Unmonitored 1, Monitored 1" in l for l in cm.output))
 
 
-class TestRadarrRunOnceGating(unittest.TestCase):
+    def test_zero_delay_override_is_honoured(self):
+        # Regression: timedelta(0) is falsy, so delayby_0 used to fall back to the global delay
+        fake = self.run_pass(FakeRadarr([movie(monitored=False, tags=[AUTO, ZERO_DELAY_TAG], digital=-0.5)], TAGS))
+        self.assertEqual(self.state(fake), (True, [ZERO_DELAY_TAG]))
+
+    def test_changes_are_batched_and_atomic(self):
+        fake = FakeRadarr([movie(mid=1, digital=48), movie(mid=2, digital=72),
+                           movie(mid=3, monitored=False, tags=[AUTO], digital=-5)], TAGS)
+        self.run_pass(fake)
+        self.assertEqual(fake.writes, [
+            ("PUT", "/api/v3/movie/editor",
+             {"movieIds": [1, 2], "monitored": False, "tags": [AUTO], "applyTags": "add"}, None),
+            ("PUT", "/api/v3/movie/editor",
+             {"movieIds": [3], "monitored": True, "tags": [AUTO], "applyTags": "remove"}, None),
+        ])
+
+
+class TestRadarrFailures(RadarrRunTestCase):
+    def test_rejected_movie_is_reported_and_others_still_change(self):
+        fake = FakeRadarr([movie(mid=1, digital=48), movie(mid=2, digital=48)], TAGS)
+        fake.movies[2]["title"] = "Other Movie"
+        fake.fail("PUT", r"/api/v3/movie/editor", 400,
+                  [{"propertyName": "Path", "errorMessage": "Path is invalid"}],
+                  when=lambda b: 2 in b["movieIds"])
+        with self.assertLogs("radarr", level="INFO") as cm:
+            self.run_pass(fake)
+        self.assertEqual(self.state(fake, 1), (False, [AUTO]))
+        self.assertEqual(self.state(fake, 2), (True, []))  # untouched, not half-changed
+        self.assertTrue(any("ERROR" in l and "Other Movie" in l and "Path is invalid" in l for l in cm.output))
+        self.assertTrue(any("SUMMARY: Assessed 2, Managed 1, Unmonitored 1, Monitored 0" in l for l in cm.output))
+
+    def test_server_error_raises_for_retry(self):
+        fake = FakeRadarr([movie(digital=48)], TAGS)
+        fake.fail("PUT", r"/api/v3/movie/editor", 502)
+        with self.assertRaises(ArrApiError):
+            self.run_pass(fake)
+        self.assertEqual(self.state(fake), (True, []))
+
+
+class TestRadarrRunOnce(unittest.TestCase):
+    def run_once(self, fake, **config):
+        with patch.object(radarr_app, "Config", make_config(**config)), \
+             patch.object(radarr_app, "_req", fake), \
+             patch("common.arr_client.time.sleep") as sleep:
+            radarr_app.run_once()
+        return sleep
+
     def test_disabled_radarr_makes_no_calls(self):
         fake = FakeRadarr([])
-        with patch.object(radarr_app, "Config", make_config(ENABLE_RADARR=False)), \
-             patch.object(radarr_app, "_req", fake):
-            radarr_app.run_once()
+        self.run_once(fake, ENABLE_RADARR=False)
         self.assertEqual(fake.calls, [])
+
+    def test_enabled_without_url_warns(self):
+        fake = FakeRadarr([])
+        with self.assertLogs("radarr", level="WARNING") as cm:
+            self.run_once(fake, RADARR_URL="")
+        self.assertIn("RADARR_URL is not set", cm.output[0])
+
+    def test_any_failure_is_logged_not_swallowed(self):
+        # Previously only ReadTimeout was handled; everything else escaped to the worker
+        fake = FakeRadarr([])
+        fake.fail("GET", r"/api/v3/movie", 500)
+        with self.assertLogs("radarr", level="WARNING") as cm:
+            sleep = self.run_once(fake)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertTrue(any("Radarr run failed after 3 attempts" in l for l in cm.output), cm.output)
 
 
 if __name__ == "__main__":

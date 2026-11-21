@@ -116,9 +116,8 @@ class TestTbaRefreshIntegration(unittest.TestCase):
         output = self._run(mock_req, mock_config, [self._episode()])
         self.assertTrue(any("TBA REFRESH: Test Series" in line for line in output),
                         f"Expected TBA REFRESH log. Got: {output}")
-        self.assertTrue(any('"name": "RefreshSeries"' in line and '"seriesId": 10' in line
-                            for line in output),
-                        f"Expected RefreshSeries payload in dry-run log. Got: {output}")
+        # _req is patched here; the dry-run log line itself is covered in test_sonarr_run
+        mock_req.assert_any_call("POST", "/api/v3/command", json={"name": "RefreshSeries", "seriesId": 10})
 
     @patch("sonarr.sonarr_app.Config")
     @patch("sonarr.sonarr_app._req")
