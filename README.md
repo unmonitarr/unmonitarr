@@ -664,12 +664,14 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your settings
 
-# Run locally
-PYTHONPATH=src python3 src/main.py
+# Run locally (keep DRY_RUN=1 while testing)
+./scripts/run_local.sh
 
 # Run tests
 PYTHONPATH=src python3 -m unittest discover tests
 ```
+
+See [docs/TESTING.md](docs/TESTING.md) for writing tests, dry runs against your own Sonarr/Radarr, and testing Docker builds.
 
 ---
 

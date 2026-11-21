@@ -1,71 +1,35 @@
-# Git
-.git
-.gitignore
-.gitattributes
-.github
+# The Dockerfile only copies requirements.txt and src/.
+# This file keeps the build context small and keeps secrets out of it.
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.pdb
-*.pkl
-
-# Virtual environments
-.venv
-venv/
-ENV/
-env/
-*.egg-info/
-.eggs/
-
-# Environment & config
+# Secrets and local config
 .env
-.env.*      # catch variants like .env.dev, .env.local
-*.ini
-*.toml
-*.yaml
-*.yml
+.env.*
+!.env.example
 
-# Build / distribution artifacts
-dist/
-build/
-*.egg
-*.whl
-*.deb
-*.rpm
-
-# Logs
-*.log
-logs/
-*.out
-*.err
-
-# Docker
-.dockerignore
-docker-compose.override.yml
-
-# IDE / Editor junk
+# Git, CI, local tooling
+.git
+.github
+.claude
+.planning
+CLAUDE.md
 .vscode/
 .idea/
-*.swp
-*.swo
 
-# macOS / Windows cruft
-.DS_Store
-.AppleDouble
-.LSOverride
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# Coverage / testing
-.coverage
-.tox/
-pytest_cache/
+# Python
+**/__pycache__
+**/*.py[cod]
+venv/
+.venv/
 .pytest_cache/
+.coverage
 htmlcov/
-.mypy_cache/
-.cache/
+
+# Not needed in the image
+tests/
+docs/
+scripts/
+assets/
+
+# OS cruft
+**/.DS_Store
+**/Thumbs.db

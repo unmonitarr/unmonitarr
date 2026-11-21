@@ -22,5 +22,6 @@ build/
 .vscode/
 .idea/
 
-# AI Context (local only)
+# AI Context and planning (local only)
 CLAUDE.md
+.planning/
