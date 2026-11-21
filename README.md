@@ -246,7 +246,7 @@ Tag a series or movie with `delayby-<minutes>` to override `DELAY_MINUTES` for j
 - `delayby-1440`: wait a full day
 - `delayby--30`: re-monitor 30 minutes *before* air/release (note the double dash)
 
-If an item has more than one `delayby` tag, unmonitarr uses `DELAY_MINUTES` for it and logs that it did. Tags in the older `delayby_60` format still work, but Sonarr v5 and Radarr 6 and later won't let you create new ones.
+If an item has more than one `delayby` tag, unmonitarr uses `DELAY_MINUTES` for it and logs that it did. Overrides are limited to one year either way; larger values are ignored with a warning. Tags in the older `delayby_60` format still work, but Sonarr v5 and Radarr 6 and later won't let you create new ones.
 
 Useful for news or sport you want quickly, or a hyped release where fakes are common.
 
