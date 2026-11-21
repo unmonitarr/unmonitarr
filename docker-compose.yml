@@ -11,32 +11,30 @@ services:
       retries: 3
       start_period: 10s
     environment:
-      # --- Global settings ---
-      - TZ=Australia/Melbourne           # Container timezone
-      - PUID=${DOCKER_PUID}              # User ID for running container process
-      - PGID=${DOCKER_PGID}              # Group ID for running container process
-      - LOG_LEVEL=INFO                   # Logging verbosity (DEBUG, INFO, WARNING, ERROR)
-      - SLEEP_MINUTES=30                 # Minutes to wait between unmonitor runs
-      - DELAY_MINUTES=60                 # Minutes to wait before unmonitoring new items
-      - AUTO_TAG_NAME=auto-unmonitored   # Tag to assign to auto-unmonitored items
-      - IGNORE_TAG_NAME=ignore           # Tag to ignore from unmonitoring
-      - SKIP_IF_FILE=1                   # Skip if file already exists (1=enabled, 0=disabled)
-      - DRY_RUN=1                        # Run in dry-run mode (no changes made; 1=enabled, 0=disabled)
+      # --- General ---
+      - TZ=Australia/Melbourne           # Timezone for log timestamps (date maths is always UTC)
+      - LOG_LEVEL=INFO                   # DEBUG, INFO, WARNING, ERROR
+      - SLEEP_MINUTES=30                 # Minutes between scheduled runs
+      - DELAY_MINUTES=120                # Minutes after air/release before re-monitoring (negative = early)
+      - AUTO_TAG_NAME=auto-unmonitored   # Marks items unmonitarr manages (letters, numbers and - only)
+      - IGNORE_TAG_NAME=ignore           # Items with this tag are never touched
+      - SKIP_IF_FILE=1                   # Leave items that already have a file (1=yes, 0=no)
+      - DRY_RUN=1                        # 1 = log what would change, 0 = apply changes
 
-      # --- Radarr settings ---
-      - ENABLE_RADARR=1                  # Enable Radarr integration (1=enabled, 0=disabled)
-      - RADARR_URL=http://localhost:7878 # Radarr instance URL
-      - RADARR_API_KEY=${RADARR_API_KEY} # Radarr API key
-      - PREFERRED_RELEASE=either         # Preferred release type (e.g., 'either', 'cut', 'proper')
-      - IGNORE_INCINEMAS=0               # Ignore in-cinemas movies (1=enabled, 0=disabled)
-      - RADARR_REMONITOR_WINDOW_DAYS=30  # Only re-monitor movies released within X days (0=disabled)
+      # --- Radarr ---
+      - ENABLE_RADARR=1                  # 1=enabled, 0=disabled
+      - RADARR_URL=http://radarr:7878    # Container name or IP; localhost is the unmonitarr container
+      - RADARR_API_KEY=${RADARR_API_KEY} # Settings > General > Security
+      - PREFERRED_RELEASE=either         # either, digital or physical
+      - IGNORE_INCINEMAS=0               # 1 = never fall back to the cinema release date
+      - RADARR_REMONITOR_WINDOW_DAYS=30  # Only re-monitor movies released within this many days (0 = no limit)
 
-      # --- Sonarr settings ---
-      - ENABLE_SONARR=1                  # Enable Sonarr integration (1=enabled, 0=disabled)
-      - SONARR_URL=http://localhost:8989 # Sonarr instance URL
-      - SONARR_API_KEY=${SONARR_API_KEY} # Sonarr API key
-      - SONARR_REMONITOR_WINDOW_DAYS=14  # Only re-monitor episodes aired within X days (0=disabled)
-      - SEASON_PACK_MODE=0               # Enable season pack mode (1=enabled, 0=disabled)
-      - SEASON_PACK_MODE_TAG=season-pack # Tag for series using season pack mode
-      - SONARR_REFRESH_TBA=0             # Refresh metadata for monitored TBA episodes (1=enabled, 0=disabled)
+      # --- Sonarr ---
+      - ENABLE_SONARR=1                  # 1=enabled, 0=disabled
+      - SONARR_URL=http://sonarr:8989    # Container name or IP; localhost is the unmonitarr container
+      - SONARR_API_KEY=${SONARR_API_KEY} # Settings > General > Security
+      - SONARR_REMONITOR_WINDOW_DAYS=14  # Only re-monitor episodes aired within this many days (0 = no limit)
+      - SEASON_PACK_MODE=0               # Re-monitor whole seasons for tagged series (1=enabled, 0=disabled)
+      - SEASON_PACK_MODE_TAG=season-pack # Tag for series that use season pack mode
+      - SONARR_REFRESH_TBA=0             # Refresh metadata for aired episodes still titled TBA (1=enabled, 0=disabled)
     restart: unless-stopped
