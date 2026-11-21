@@ -16,7 +16,10 @@ WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 # Placeholder id returned for a tag that would be created in a dry run
 DRY_RUN_TAG_ID = 999999
 
-_DELAY_TAG_RE = re.compile(r"^delayby_(-?\d+)$", re.IGNORECASE)
+# delayby-<minutes>, e.g. delayby-60 or delayby--30. Sonarr v5 and Radarr 6+ only allow
+# a-z, 0-9 and - in tag labels. The older delayby_<minutes> form is still read, so
+# existing tags keep working.
+_DELAY_TAG_RE = re.compile(r"^delayby[-_](-?\d+)$", re.IGNORECASE)
 
 
 class ArrApiError(Exception):
@@ -238,7 +241,7 @@ def bulk_edit(req, path, id_field, ids, changes):
 
 
 def get_delay_override(tag_ids, id_to_label, title, log):
-    """Return a timedelta from a delayby_<N> tag, or None.
+    """Return a timedelta from a delayby-<N> (or legacy delayby_<N>) tag, or None.
 
     More than one delayby tag on the same item is ambiguous, so it falls back to None
     (the global delay) and logs it.
@@ -249,7 +252,7 @@ def get_delay_override(tag_ids, id_to_label, title, log):
         if m:
             matches.append(int(m.group(1)))
     if len(matches) > 1:
-        log.info("Multiple delayby_ tags found for %s, falling back to default delay", title)
+        log.info("Multiple delayby tags found for %s, falling back to default delay", title)
         return None
     if matches:
         log.debug("Using delay override of %d min for %s", matches[0], title)

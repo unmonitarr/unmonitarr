@@ -49,7 +49,7 @@ class TestGetDelayOverride(unittest.TestCase):
         with self.assertLogs("radarr", level="INFO") as cm:
             result = fn([1, 2], id_to_label, "Test Movie")
         self.assertIsNone(result)
-        self.assertTrue(any("Multiple delayby_" in line for line in cm.output))
+        self.assertTrue(any("Multiple delayby" in line for line in cm.output))
 
     def test_radarr_case_insensitive(self):
         fn = self._get_radarr_fn()
@@ -95,7 +95,7 @@ class TestGetDelayOverride(unittest.TestCase):
         with self.assertLogs("sonarr", level="INFO") as cm:
             result = fn([1, 2], id_to_label, "Test Series")
         self.assertIsNone(result)
-        self.assertTrue(any("Multiple delayby_" in line for line in cm.output))
+        self.assertTrue(any("Multiple delayby" in line for line in cm.output))
 
 
 class TestRadarrDelayOverrideIntegration(unittest.TestCase):
@@ -237,3 +237,68 @@ class TestSonarrDelayOverrideIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDelayTagFormats(unittest.TestCase):
+    """delayby-<N> is the current format; delayby_<N> is still read for existing tags."""
+
+    def override(self, *labels):
+        from common.arr_client import get_delay_override
+        import logging
+        id_to_label = {i + 1: label for i, label in enumerate(labels)}
+        return get_delay_override(list(id_to_label), id_to_label, "Test Series", logging.getLogger("test"))
+
+    def test_hyphen_format(self):
+        self.assertEqual(self.override("delayby-60"), timedelta(minutes=60))
+
+    def test_hyphen_format_negative(self):
+        self.assertEqual(self.override("delayby--30"), timedelta(minutes=-30))
+
+    def test_hyphen_format_zero(self):
+        self.assertEqual(self.override("delayby-0"), timedelta(0))
+
+    def test_legacy_underscore_format(self):
+        self.assertEqual(self.override("delayby_90"), timedelta(minutes=90))
+        self.assertEqual(self.override("delayby_-15"), timedelta(minutes=-15))
+
+    def test_case_insensitive(self):
+        self.assertEqual(self.override("DelayBy-45"), timedelta(minutes=45))
+
+    def test_both_formats_on_one_item_fall_back(self):
+        with self.assertLogs("test", level="INFO"):
+            self.assertIsNone(self.override("delayby-60", "delayby_60"))
+
+    def test_near_misses_are_ignored(self):
+        for label in ("delayby60", "delayby-", "delayby---30", "delayby-+30", "delayby-1.5",
+                      "xdelayby-60", "delayby-60x", "delay-60", "delayby-sixty"):
+            self.assertIsNone(self.override(label), label)
+
+    def test_hyphen_tag_applies_in_sonarr_pass(self):
+        from unittest.mock import patch
+        import sonarr.sonarr_app as sonarr_app
+        from tests.fakes import FakeSonarr, hours_from_now, make_config
+        fake = FakeSonarr(
+            [{"id": 10, "title": "Test Series", "monitored": True, "tags": [1, 2],
+              "seasons": [{"seasonNumber": 1, "monitored": True}]}],
+            {(10, 1): [{"id": 100, "episodeNumber": 1, "title": "Episode", "monitored": False,
+                        "hasFile": False, "airDateUtc": hours_from_now(-0.5)}]},
+            ({"id": 1, "label": "auto-unmonitored"}, {"id": 2, "label": "delayby-10"}),
+        )
+        with patch.object(sonarr_app, "Config", make_config()), patch.object(sonarr_app, "_req", fake):
+            sonarr_app._run_once_inner()
+        self.assertTrue(fake.episode(100)["monitored"])
+
+    def test_hyphen_tag_applies_in_radarr_pass(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+        import radarr.radarr_app as radarr_app
+        from tests.fakes import FakeRadarr, make_config
+        released = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fake = FakeRadarr(
+            [{"id": 1, "title": "Test Movie", "monitored": False, "tags": [1, 2], "hasFile": False,
+              "digitalRelease": released}],
+            ({"id": 1, "label": "auto-unmonitored"}, {"id": 2, "label": "delayby-10"}),
+        )
+        with patch.object(radarr_app, "Config", make_config()), patch.object(radarr_app, "_req", fake):
+            radarr_app._run_once()
+        self.assertTrue(fake.movies[1]["monitored"])
