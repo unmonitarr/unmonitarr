@@ -22,13 +22,16 @@ _DELAY_TAG_RE = re.compile(r"^delayby_(-?\d+)$", re.IGNORECASE)
 class ArrApiError(Exception):
     """A Sonarr/Radarr API call failed. The message says which call and why."""
 
-    def __init__(self, message, status_code=None):
+    def __init__(self, message, status_code=None, transient=None):
         super().__init__(message)
         self.status_code = status_code
+        self._transient = transient
 
     @property
     def transient(self):
         """True for failures worth retrying: no response at all, or a server-side error."""
+        if self._transient is not None:
+            return self._transient
         return self.status_code is None or self.status_code >= 500
 
 
@@ -71,6 +74,10 @@ def request(base_url, api_key, method, path, *, dry_run, log, timeout=30, **kw):
         with requests.Session() as session:
             session.headers.update({"X-Api-Key": api_key})
             response = session.request(method, f"{base_url}{path}", timeout=timeout, **kw)
+    except (requests.exceptions.InvalidURL, requests.exceptions.MissingSchema,
+            requests.exceptions.InvalidSchema) as e:
+        raise ArrApiError(f"{method} {path} failed: {base_url} isn't a valid URL. Include http:// or https:// "
+                          f"({e.__class__.__name__}: {e})", transient=False) from e
     except requests.RequestException as e:
         raise ArrApiError(f"{method} {path} failed: no response from {base_url} ({e.__class__.__name__}: {e})") from e
     raise_for_status(method, path, response)
@@ -97,7 +104,8 @@ def get_json(req, path, **kw):
         return response.json()
     except ValueError as e:
         raise ArrApiError(
-            f"GET {path} returned something other than JSON. Check the URL, including any URL base."
+            f"GET {path} returned something other than JSON. Check the URL, including any URL base.",
+            transient=False,
         ) from e
 
 
@@ -147,14 +155,21 @@ def run_with_retries(fn, app_name, log, attempts=3, delay_seconds=5):
     return False
 
 
+_warned_unconfigured = set()
+
+
 def is_configured(app_name, enabled, url, api_key, log):
-    """True if the app should run. Warns when it's enabled but missing settings."""
+    """True if the app should run. Warns (once per process) when it's enabled but missing settings."""
     if not enabled:
         log.debug("%s is disabled, skipping", app_name)
         return False
     missing = [name for name, value in ((f"{app_name.upper()}_URL", url), (f"{app_name.upper()}_API_KEY", api_key))
                if not value]
     if missing:
+        if app_name in _warned_unconfigured:
+            log.debug("%s is enabled but not configured, skipping", app_name)
+            return False
+        _warned_unconfigured.add(app_name)
         log.warning("%s is enabled but %s not set, skipping. Set ENABLE_%s=0 to silence this.",
                     app_name, " and ".join(missing) + (" is" if len(missing) == 1 else " are"), app_name.upper())
         return False
@@ -183,7 +198,8 @@ def ensure_tag(req, label, label_to_id, *, dry_run, log):
     try:
         created = req("POST", "/api/v3/tag", json={"label": label}).json()
     except ArrApiError as e:
-        raise ArrApiError(f"Couldn't create tag '{label}': {e}", status_code=e.status_code) from e
+        raise ArrApiError(f"Couldn't create tag '{label}': {e}", status_code=e.status_code,
+                          transient=e.transient) from e
     log.info("Created tag '%s'", label)
     return int(created["id"])
 

@@ -85,7 +85,7 @@ class _Pass:
     series_with_auto_tag: set
     eps_to_monitor: list = field(default_factory=list)
     eps_to_unmonitor: list = field(default_factory=list)
-    unmonitor_series: dict = field(default_factory=dict)  # episode id -> series id
+    episode_series: dict = field(default_factory=dict)  # episode id -> series id, for every decision
     series_to_tag: set = field(default_factory=set)
     assessed: int = 0
     _monitor_set: set = field(default_factory=set, repr=False)
@@ -109,7 +109,7 @@ class _Pass:
         else:
             log.info("UNMONITOR: %s", self.describe(sid, season, e))
         self.eps_to_unmonitor.append(e["id"])
-        self.unmonitor_series[e["id"]] = sid
+        self.episode_series[e["id"]] = sid
         if sid not in self.series_with_auto_tag:
             self.series_to_tag.add(sid)
 
@@ -131,14 +131,14 @@ def _process_standard(p, sid, season, eps, delay):
         air = e.get("airDateUtc")
         p.assessed += 1
 
+        if Config.SKIP_IF_FILE and e.get("hasFile"):
+            continue
         if not air:
             if e.get("monitored", False):
                 p.unmonitor(sid, season, e, no_air_date=True)
             continue
         air_dt = _air_date(p, sid, season, e)
         if air_dt is None:
-            continue
-        if Config.SKIP_IF_FILE and e.get("hasFile"):
             continue
 
         threshold = air_dt + delay
@@ -148,6 +148,7 @@ def _process_standard(p, sid, season, eps, delay):
             if sid in p.series_with_auto_tag and p.within_window(air_dt):
                 log.info("MONITOR: %s", p.describe(sid, season, e))
                 p.eps_to_monitor.append(e["id"])
+                p.episode_series[e["id"]] = sid
         elif p.now < threshold and monitored:
             p.unmonitor(sid, season, e)
 
@@ -177,6 +178,7 @@ def _process_season_pack(p, sid, season, eps, delay):
             if not e.get("monitored", False):
                 log.info("MONITOR (season pack): %s", p.describe(sid, season, e, with_air_date=False))
                 p.eps_to_monitor.append(e["id"])
+                p.episode_series[e["id"]] = sid
                 added += 1
         if added > 0:
             log.info("SEASON PACK MODE: Re-monitored %d episodes for %s S%02d",
@@ -184,10 +186,12 @@ def _process_season_pack(p, sid, season, eps, delay):
         return
 
     # Trigger not reached yet: unmonitor anything still monitored in the season.
-    # Note: compares against the trigger's threshold, and doesn't check SKIP_IF_FILE.
+    # Note: compares against the trigger's threshold, not each episode's own.
     for e in eps:
         air = e.get("airDateUtc")
         p.assessed += 1
+        if Config.SKIP_IF_FILE and e.get("hasFile"):
+            continue
         if not air:
             if e.get("monitored", False):
                 p.unmonitor(sid, season, e, no_air_date=True)
@@ -288,6 +292,21 @@ def _refresh_tba_series(series_episodes, series_map, eps_to_monitor, eps_to_unmo
     return refreshed
 
 
+def _set_episodes_monitored(p, episode_ids, monitored):
+    """One PUT for all episodes. On failure, the error names the series affected."""
+    if not episode_ids:
+        return
+    try:
+        _req("PUT", "/api/v3/episode/monitor", json={"episodeIds": episode_ids, "monitored": monitored})
+    except arr_client.ArrApiError as e:
+        ids = set(episode_ids)
+        names = sorted({p.series_map.get(p.episode_series.get(eid), "unknown series") for eid in ids})
+        shown = ", ".join(names[:5]) + (f" and {len(names) - 5} more" if len(names) > 5 else "")
+        action = "re-monitor" if monitored else "unmonitor"
+        raise arr_client.ArrApiError(f"Couldn't {action} {len(ids)} episode(s) in {shown}: {e}",
+                                     status_code=e.status_code, transient=e.transient) from e
+
+
 def _apply(p, series_episodes, series_delay_override, default_delay):
     """Write this pass's decisions to Sonarr.
 
@@ -301,13 +320,11 @@ def _apply(p, series_episodes, series_delay_override, default_delay):
         log.error("Couldn't add auto-tag to %s, leaving its episodes monitored: %s",
                   p.series_map.get(sid, f"id:{sid}"), err)
     if failed:
-        p.eps_to_unmonitor = [eid for eid in p.eps_to_unmonitor if p.unmonitor_series[eid] not in failed]
+        p.eps_to_unmonitor = [eid for eid in p.eps_to_unmonitor if p.episode_series[eid] not in failed]
     p.series_with_auto_tag |= (p.series_to_tag - set(failed))
 
-    if p.eps_to_unmonitor:
-        _req("PUT", "/api/v3/episode/monitor", json={"episodeIds": p.eps_to_unmonitor, "monitored": False})
-    if p.eps_to_monitor:
-        _req("PUT", "/api/v3/episode/monitor", json={"episodeIds": p.eps_to_monitor, "monitored": True})
+    _set_episodes_monitored(p, p.eps_to_unmonitor, False)
+    _set_episodes_monitored(p, p.eps_to_monitor, True)
 
     # Every tagged series we looked at this pass is re-checked, so a removal that fails
     # (or a tag left behind by an older version) is cleaned up on a later pass

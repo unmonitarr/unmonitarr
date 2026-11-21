@@ -69,8 +69,9 @@ class TestTags(unittest.TestCase):
                 [{"propertyName": "Label", "errorMessage": "Allowed characters a-z, 0-9 and -"}], 400))
         with self.assertRaises(arr_client.ArrApiError) as cm:
             arr_client.ensure_tag(req, "auto_unmonitored", {}, dry_run=False, log=log)
-        self.assertIn("auto_unmonitored", str(cm.exception))
-        self.assertIn("Allowed characters a-z, 0-9 and -", str(cm.exception))
+        self.assertEqual(str(cm.exception),
+                         "Couldn't create tag 'auto_unmonitored': POST /api/v3/tag failed: 400: "
+                         "Allowed characters a-z, 0-9 and -")
         self.assertFalse(cm.exception.transient)
 
 
@@ -119,12 +120,47 @@ class TestErrors(unittest.TestCase):
         self.assertIn("ReadTimeout", str(cm.exception))
         self.assertTrue(cm.exception.transient)
 
+    def test_url_without_scheme_is_permanent(self):
+        with self.assertRaises(arr_client.ArrApiError) as cm:
+            self.send(exc=requests.exceptions.MissingSchema("no scheme"))
+        self.assertIn("isn't a valid URL", str(cm.exception))
+        self.assertFalse(cm.exception.transient)
+
+    def test_validation_messages_are_joined(self):
+        with self.assertRaises(arr_client.ArrApiError) as cm:
+            self.send(FakeResponse([{"errorMessage": "First"}, {"errorMessage": "Second"}], 400))
+        self.assertTrue(str(cm.exception).endswith("failed: 400: First; Second"), str(cm.exception))
+
     def test_get_json_explains_non_json_body(self):
         r = FakeResponse(None, 200, text="<html>login</html>")
         r.json = MagicMock(side_effect=ValueError)
         with self.assertRaises(arr_client.ArrApiError) as cm:
             arr_client.get_json(MagicMock(return_value=r), "/api/v3/series")
         self.assertIn("URL base", str(cm.exception))
+        self.assertFalse(cm.exception.transient)
+
+
+class TestBulkEdit(unittest.TestCase):
+    def test_transient_error_in_per_item_fallback_raises(self):
+        def req(method, path, json):
+            if len(json["ids"]) > 1:
+                arr_client.raise_for_status(method, path, FakeResponse([{"errorMessage": "bad"}], 400))
+            if json["ids"] == [2]:
+                arr_client.raise_for_status(method, path, FakeResponse({}, 503))
+        with self.assertRaises(arr_client.ArrApiError) as cm:
+            arr_client.bulk_edit(req, "/x", "ids", [1, 2, 3], {})
+        self.assertTrue(cm.exception.transient)
+
+    def test_rejected_batch_falls_back_per_item(self):
+        sent = []
+
+        def req(method, path, json):
+            sent.append(json["ids"])
+            if 2 in json["ids"]:
+                arr_client.raise_for_status(method, path, FakeResponse([{"errorMessage": "bad"}], 400))
+        failed = arr_client.bulk_edit(req, "/x", "ids", [3, 1, 2], {"monitored": True})
+        self.assertEqual(sent, [[1, 2, 3], [1], [2], [3]])
+        self.assertEqual(list(failed), [2])
 
 
 class TestRunWithRetries(unittest.TestCase):
@@ -172,6 +208,9 @@ class TestRunWithRetries(unittest.TestCase):
 
 
 class TestIsConfigured(unittest.TestCase):
+    def setUp(self):
+        arr_client._warned_unconfigured.clear()
+
     def test_disabled_is_quiet(self):
         with self.assertNoLogs(log, level="INFO"):
             self.assertFalse(arr_client.is_configured("Sonarr", False, "", "", log))

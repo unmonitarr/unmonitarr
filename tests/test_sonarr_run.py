@@ -206,11 +206,28 @@ class TestEdgeCases(SonarrRunTestCase):
         self.run_pass(fake, IGNORE_TAG_NAME="ignore")
         self.assertTrue(self.monitored(fake, 100))
 
-    def test_no_air_date_is_unmonitored_even_with_file(self):
-        # Current behaviour: the no-air-date check runs before SKIP_IF_FILE
+    def test_no_air_date_with_file_is_left_alone(self):
+        # Regression: this used to be unmonitored, tagged and untagged in the same pass,
+        # leaving it unmonitored for good
         fake = FakeSonarr([series()], {(10, 1): [episode(100, air_hours=None, has_file=True)]}, TAGS)
         self.run_pass(fake)
-        self.assertFalse(self.monitored(fake, 100))
+        self.assertTrue(self.monitored(fake, 100))
+        self.assertEqual(fake.writes, [])
+
+    def test_season_pack_before_trigger_leaves_episodes_with_files(self):
+        eps = [episode(100, number=1, air_hours=10, monitored=True, has_file=True),
+               episode(101, number=2, air_hours=24 * 7, monitored=True)]
+        fake = FakeSonarr([series(tags=[SEASON_PACK])], {(10, 1): eps}, TAGS)
+        self.run_pass(fake, SEASON_PACK_MODE=True)
+        self.assertTrue(self.monitored(fake, 100))
+        self.assertFalse(self.monitored(fake, 101))
+        self.assertIn(AUTO, self.series_tags(fake))
+
+    def test_no_tag_churn_when_only_files_present(self):
+        eps = [episode(100, number=1, air_hours=10, monitored=True, has_file=True)]
+        fake = FakeSonarr([series(tags=[SEASON_PACK])], {(10, 1): eps}, TAGS)
+        self.run_pass(fake, SEASON_PACK_MODE=True)
+        self.assertEqual(fake.writes, [])
 
     def test_season_pack_respects_remonitor_window(self):
         eps = [episode(100, number=1, air_hours=-24 * 20, monitored=False),
@@ -441,6 +458,34 @@ class TestFailures(SonarrRunTestCase):
             self.run_pass(fake, SEASON_PACK_MODE=True)
         self.assertTrue(any("unreadable air date" in l for l in cm.output), cm.output)
 
+    def test_episode_write_failure_names_the_series(self):
+        fake = self.two_series()
+        fake.fail("PUT", r"/api/v3/episode/monitor", 400, {"message": "Bad"})
+        with self.assertRaises(ArrApiError) as cm:
+            self.run_pass(fake)
+        self.assertIn("Couldn't unmonitor 2 episode(s) in Other Series, Test Series", str(cm.exception))
+        self.assertIn("Bad", str(cm.exception))
+
+    def test_transient_failure_removing_tag_is_a_warning(self):
+        fake = FakeSonarr([series(tags=[AUTO])], {(10, 1): [episode(100, air_hours=-5, monitored=False)]}, TAGS)
+        fake.fail("PUT", r"/api/v3/series/editor", 503)
+        with self.assertLogs("sonarr", level="WARNING") as cm:
+            self.run_pass(fake)
+        self.assertTrue(self.monitored(fake, 100))
+        self.assertTrue(any("will retry next run" in l for l in cm.output), cm.output)
+
+    def test_transient_failure_during_per_series_fallback_raises(self):
+        # Batch rejected (400) -> retried per series -> one gets a 503: retry the whole pass,
+        # and nothing is unmonitored yet
+        fake = self.two_series()
+        fake.fail("PUT", r"/api/v3/series/editor", 400, self.VALIDATION, when=lambda b: len(b["seriesIds"]) > 1)
+        fake.fail("PUT", r"/api/v3/series/editor", 503, when=lambda b: b["seriesIds"] == [20])
+        with self.assertRaises(ArrApiError) as cm:
+            self.run_pass(fake)
+        self.assertTrue(cm.exception.transient)
+        self.assertTrue(self.monitored(fake, 100))
+        self.assertTrue(self.monitored(fake, 200))
+
     def test_rejected_tag_name_reports_server_message(self):
         fake = FakeSonarr([series()], {(10, 1): [episode(100, air_hours=48)]}, tags=())
         fake.fail("POST", r"/api/v3/tag", 400, [{"propertyName": "Label",
@@ -452,6 +497,10 @@ class TestFailures(SonarrRunTestCase):
 
 
 class TestRunOnce(unittest.TestCase):
+    def setUp(self):
+        from common import arr_client
+        arr_client._warned_unconfigured.clear()
+
     def run_once(self, fake, **config):
         with patch.object(sonarr_app, "Config", make_config(**config)), \
              patch.object(sonarr_app, "_req", fake), \
@@ -470,6 +519,13 @@ class TestRunOnce(unittest.TestCase):
             self.run_once(fake, SONARR_API_KEY="")
         self.assertEqual(fake.calls, [])
         self.assertIn("SONARR_API_KEY is not set", cm.output[0])
+
+    def test_unconfigured_warning_is_logged_once(self):
+        fake = FakeSonarr([], {})
+        with self.assertLogs("sonarr", level="DEBUG") as cm:
+            self.run_once(fake, SONARR_API_KEY="")
+            self.run_once(fake, SONARR_API_KEY="")
+        self.assertEqual(sum("WARNING" in l for l in cm.output), 1)
 
     def test_bad_api_key_is_one_clear_error_without_retries(self):
         fake = FakeSonarr([], {})
