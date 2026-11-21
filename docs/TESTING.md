@@ -9,6 +9,8 @@ pip install -r requirements.txt
 PYTHONPATH=src python3 -m unittest discover tests
 ```
 
+To run one file: `PYTHONPATH=src python3 -m unittest tests.test_sonarr_run`.
+
 If you have pytest installed, `PYTHONPATH=src pytest tests` also works and reports the same count.
 CI runs the unittest command on every branch push, pull request and release tag, and the Docker
 image only builds if it passes.

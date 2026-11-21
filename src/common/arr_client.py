@@ -19,7 +19,11 @@ DRY_RUN_TAG_ID = 999999
 # delayby-<minutes>, e.g. delayby-60 or delayby--30. Sonarr v5 and Radarr 6+ only allow
 # a-z, 0-9 and - in tag labels. The older delayby_<minutes> form is still read, so
 # existing tags keep working.
-_DELAY_TAG_RE = re.compile(r"^delayby[-_](-?\d+)$", re.IGNORECASE)
+_DELAY_TAG_RE = re.compile(r"delayby[-_](-?[0-9]+)", re.IGNORECASE)
+
+# Overrides beyond a year are almost certainly typos, and large enough values overflow
+# the date maths and would fail every run
+MAX_DELAY_OVERRIDE_MINUTES = 365 * 24 * 60
 
 
 class ArrApiError(Exception):
@@ -248,9 +252,16 @@ def get_delay_override(tag_ids, id_to_label, title, log):
     """
     matches = []
     for tid in tag_ids:
-        m = _DELAY_TAG_RE.match(id_to_label.get(int(tid), ""))
-        if m:
-            matches.append(int(m.group(1)))
+        label = id_to_label.get(int(tid), "")
+        m = _DELAY_TAG_RE.fullmatch(label)
+        if not m:
+            continue
+        minutes = int(m.group(1))
+        if abs(minutes) > MAX_DELAY_OVERRIDE_MINUTES:
+            log.warning("Ignoring tag %s on %s: delay overrides are limited to %d minutes (one year)",
+                        label, title, MAX_DELAY_OVERRIDE_MINUTES)
+            continue
+        matches.append(minutes)
     if len(matches) > 1:
         log.info("Multiple delayby tags found for %s, falling back to default delay", title)
         return None

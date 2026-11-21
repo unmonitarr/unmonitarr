@@ -21,7 +21,7 @@ def _ensure_tag(label, label_to_id):
 
 
 def _get_delay_override(tag_ids, id_to_label, title="unknown"):
-    """Return a timedelta override if a delayby-<N> tag is found, else None."""
+    """Return a timedelta override from a delayby-<N> (or legacy delayby_<N>) tag, else None."""
     return arr_client.get_delay_override(tag_ids, id_to_label, title, log)
 
 

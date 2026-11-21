@@ -235,9 +235,6 @@ class TestSonarrDelayOverrideIntegration(unittest.TestCase):
                         f"Expected MONITOR log. Got: {cm.output}")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestDelayTagFormats(unittest.TestCase):
     """delayby-<N> is the current format; delayby_<N> is still read for existing tags."""
@@ -273,6 +270,42 @@ class TestDelayTagFormats(unittest.TestCase):
                       "xdelayby-60", "delayby-60x", "delay-60", "delayby-sixty"):
             self.assertIsNone(self.override(label), label)
 
+    def test_non_ascii_digits_and_trailing_newline_are_ignored(self):
+        for label in ("delayby-\u0663\u0660", "delayby-\uff16\uff10", "delayby-60\n"):
+            self.assertIsNone(self.override(label), repr(label))
+
+    def test_leading_zeros(self):
+        self.assertEqual(self.override("delayby-0060"), timedelta(minutes=60))
+
+    def test_out_of_range_override_is_ignored_with_warning(self):
+        import logging
+        from common.arr_client import get_delay_override
+        id_to_label = {1: "delayby-99999999999"}
+        with self.assertLogs("test", level="WARNING") as cm:
+            result = get_delay_override([1], id_to_label, "Test Series", logging.getLogger("test"))
+        self.assertIsNone(result)
+        self.assertIn("limited to", cm.output[0])
+
+    def test_one_year_is_allowed(self):
+        self.assertEqual(self.override("delayby-525600"), timedelta(minutes=525600))
+        self.assertEqual(self.override("delayby--525600"), timedelta(minutes=-525600))
+
+    def test_out_of_range_tag_does_not_break_a_run(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+        import radarr.radarr_app as radarr_app
+        from tests.fakes import FakeRadarr, make_config
+        released = (datetime.now(timezone.utc) + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fake = FakeRadarr(
+            [{"id": 1, "title": "Test Movie", "monitored": True, "tags": [2], "hasFile": False,
+              "digitalRelease": released}],
+            ({"id": 1, "label": "auto-unmonitored"}, {"id": 2, "label": "delayby-99999999999"}),
+        )
+        with patch.object(radarr_app, "Config", make_config()), patch.object(radarr_app, "_req", fake), \
+             self.assertLogs("radarr", level="WARNING"):
+            radarr_app._run_once()
+        self.assertFalse(fake.movies[1]["monitored"])  # handled with the default delay
+
     def test_hyphen_tag_applies_in_sonarr_pass(self):
         from unittest.mock import patch
         import sonarr.sonarr_app as sonarr_app
@@ -302,3 +335,7 @@ class TestDelayTagFormats(unittest.TestCase):
         with patch.object(radarr_app, "Config", make_config()), patch.object(radarr_app, "_req", fake):
             radarr_app._run_once()
         self.assertTrue(fake.movies[1]["monitored"])
+
+
+if __name__ == "__main__":
+    unittest.main()
