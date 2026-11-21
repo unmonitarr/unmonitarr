@@ -9,13 +9,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
-permissions:
-  contents: read
-  packages: write
-
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -38,6 +36,9 @@ jobs:
   build-and-push:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout

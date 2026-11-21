@@ -9,8 +9,9 @@ pip install -r requirements.txt
 PYTHONPATH=src python3 -m unittest discover tests
 ```
 
-`pytest tests` works too and should report the same count. CI runs the unittest command on every
-push and pull request, and the Docker image only builds if it passes.
+If you have pytest installed, `PYTHONPATH=src pytest tests` also works and reports the same count.
+CI runs the unittest command on every branch push, pull request and release tag, and the Docker
+image only builds if it passes.
 
 Write new tests as `unittest.TestCase` subclasses. `unittest discover` silently skips bare
 `def test_*` functions and pytest fixtures, so pytest-style tests never run under the documented
@@ -32,6 +33,8 @@ Things worth knowing when writing tests:
 cp .env.example .env    # add your URLs and API keys, keep DRY_RUN=1
 ./scripts/run_local.sh
 ```
+
+`.env` is loaded as shell, so quote any value that contains spaces.
 
 With `DRY_RUN=1` nothing is changed. Every write is logged with a `[DRY]` prefix instead, so you
 can check exactly what unmonitarr would do.
@@ -58,15 +61,17 @@ INFO:core.job_queue:Completed sonarr job (triggered_by=webhook)
 docker build -t unmonitarr:test .
 ```
 
-Point `image:` in `docker-compose.yml` at `unmonitarr:test`, then:
+Point `image:` in `docker-compose.yml` at `unmonitarr:test` and set your real URLs and API keys.
+Inside the container `localhost` is the container itself, so use your host's IP or, on
+Docker Desktop, `http://host.docker.internal:8989`. Then:
 
 ```bash
 docker compose up -d
 docker compose logs -f unmonitarr
 ```
 
-Pushing a branch also builds a dev image, e.g. `feature/my-change` publishes
-`ghcr.io/unmonitarr/unmonitarr:dev-feature-my-change`.
+Branches pushed to the main repository also build a dev image, e.g. `feature/my-change`
+publishes `ghcr.io/unmonitarr/unmonitarr:dev-feature-my-change`. Forks don't publish there.
 
 ## Before opening a pull request
 

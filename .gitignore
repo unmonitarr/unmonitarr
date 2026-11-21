@@ -4,6 +4,8 @@ __pycache__/
 *.pyo
 *.pyd
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 .pytest_cache/
@@ -24,4 +26,5 @@ build/
 
 # AI Context and planning (local only)
 CLAUDE.md
+.claude/
 .planning/

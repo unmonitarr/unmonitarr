@@ -4,7 +4,6 @@
 # Secrets and local config
 .env
 .env.*
-!.env.example
 
 # Git, CI, local tooling
 .git
