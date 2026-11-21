@@ -23,19 +23,18 @@ unmonitarr keeps upcoming content unmonitored until its air or release date plus
 
 - Episodes and movies are unmonitored until air/release date + `DELAY_MINUTES`
 - After that, they're monitored again automatically
-- A tag marks everything unmonitarr is managing, so it never re-monitors something you unmonitored yourself
+- A tag marks what unmonitarr is managing, so it only re-monitors what it unmonitored. For Sonarr the tag is on the series, so while a series is tagged, an aired episode you unmonitored yourself can be re-monitored too
 - Webhooks let it act the moment you add something, before Sonarr or Radarr can search
 
 ### Do you need it?
 
 Sonarr and Radarr have been adding their own versions of this. Here's an honest comparison so you can decide.
 
-**Radarr** has long had a built-in equivalent: set a movie's **Minimum Availability** to *Released* and set **Availability Delay** under Settings → Indexers. Radarr then won't grab a movie automatically until the earlier of its digital and physical release dates, plus the delay. It doesn't apply to searches you start yourself. If that covers you, you don't need unmonitarr for movies. unmonitarr adds:
+**Radarr** has long had a built-in equivalent: set a movie's **Minimum Availability** to *Released* and set **Availability Delay** under Settings → Indexers. Radarr then won't grab a movie automatically until the earlier of its digital and physical release dates, plus the delay. With neither date, it waits until 90 days after the cinema release, which is more cautious than unmonitarr: unmonitarr uses the cinema date itself unless you set `IGNORE_INCINEMAS=1`. It doesn't apply to searches you start yourself. If that covers you, you don't need unmonitarr for movies. unmonitarr adds:
 
 - Delays in minutes rather than whole days
 - Per-movie delays via tags, on top of your default
 - A choice of digital or physical release date
-- A re-monitor window, so old movies you've removed aren't picked back up
 
 **Sonarr v5** (in beta at the time of writing) adds **Reject Unaired Releases** and an **Air Date Grace Period** (hours, can be negative) to Release Profiles. It checks each release's publish date against the episode's air date, which also blocks a fake uploaded before air even after the episode has aired. unmonitarr can't do that. It's scoped by tags, and where several profiles apply to a series, the longest grace period wins. unmonitarr adds:
 
@@ -43,7 +42,6 @@ Sonarr and Radarr have been adding their own versions of this. Here's an honest 
 - Per-series delays that can be shorter or longer than your default
 - [Season pack mode](#season-pack-mode) for shows released all at once
 - [TBA metadata refresh](#tba-metadata-refresh)
-- A re-monitor window
 
 You can use both side by side.
 
@@ -154,7 +152,7 @@ Without webhooks, unmonitarr runs every `SLEEP_MINUTES` (default 30). Something 
 
 ### Radarr webhook
 
-Same steps, with URL `http://unmonitarr:5099/trigger/radarr` and trigger **On Movie Add**.
+Same steps, with URL `http://unmonitarr:5099/trigger/radarr` and trigger **On Movie Added**.
 
 unmonitarr ignores the webhook's contents. Any POST to the trigger URL queues a full run for that app.
 
@@ -177,7 +175,7 @@ For every episode in every **monitored season** of every **monitored series** (s
 
 The auto-tag stays on a series while any episode is still waiting, and is removed once nothing is.
 
-Example with `DELAY_MINUTES=120`: an episode airs Wednesday at 8:00 PM. Until 10:00 PM it's unmonitored, so nothing is searched. After 10:00 PM it's monitored again.
+Example with `DELAY_MINUTES=120` and `SLEEP_MINUTES=30`: an episode airs Wednesday at 8:00 PM. Until 10:00 PM it's unmonitored, so nothing is searched. It's monitored again on the first scheduled run after 10:00 PM, so by 10:30 PM at the latest.
 
 ### Radarr (movies)
 
@@ -195,6 +193,8 @@ For every movie (skipping those with the ignore tag):
 ### Re-monitor windows
 
 The windows stop unmonitarr from re-monitoring old content, such as a movie you watched and deleted years ago. Something still unmonitored when its window passes stays unmonitored. Monitor it by hand if you still want it, or set the window to `0` for no limit.
+
+The window is counted from the air/release date, not from the end of the delay. **Keep delays shorter than the window** (14 days for Sonarr and 30 for Radarr by default), or the item will never be re-monitored.
 
 ---
 
@@ -215,7 +215,7 @@ The windows stop unmonitarr from re-monitoring old content, such as a movie you 
 | `RADARR_REMONITOR_WINDOW_DAYS` | `30` | Only re-monitor movies released within this many days (`0` = no limit) |
 | `SONARR_REMONITOR_WINDOW_DAYS` | `14` | Only re-monitor episodes aired within this many days (`0` = no limit) |
 
-**Tag names:** Sonarr v5 and Radarr 6 and later only allow letters, numbers and `-` in tag names. Keep custom `AUTO_TAG_NAME`, `IGNORE_TAG_NAME` and `SEASON_PACK_MODE_TAG` values to those characters.
+**Tag names:** Sonarr v5 and Radarr 6 and later only allow `a-z`, `0-9` and `-` in tag names. Keep custom `AUTO_TAG_NAME`, `IGNORE_TAG_NAME` and `SEASON_PACK_MODE_TAG` values to those characters.
 
 ### Radarr settings
 
@@ -246,7 +246,7 @@ Tag a series or movie with `delayby-<minutes>` to override `DELAY_MINUTES` for j
 - `delayby-1440`: wait a full day
 - `delayby--30`: re-monitor 30 minutes *before* air/release (note the double dash)
 
-If an item has more than one `delayby` tag, unmonitarr uses `DELAY_MINUTES` for it and logs that it did. Overrides are limited to one year either way; larger values are ignored with a warning. Tags in the older `delayby_60` format still work, but Sonarr v5 and Radarr 6 and later won't let you create new ones.
+If an item has more than one `delayby` tag, unmonitarr uses `DELAY_MINUTES` for it and logs that it did. Overrides are limited to one year either way; larger values are ignored with a warning. An override longer than the [re-monitor window](#re-monitor-windows) means the item is never re-monitored. Tags in the older `delayby_60` format still work, but Sonarr v5 and Radarr 6 and later won't let you create new ones.
 
 Useful for news or sport you want quickly, or a hyped release where fakes are common.
 
@@ -262,11 +262,11 @@ Useful for news or sport you want quickly, or a hyped release where fakes are co
 
 For shows where Sonarr lists weekly air dates but the whole season is actually released on day one, which is common with streaming services.
 
-Tag the series with `SEASON_PACK_MODE_TAG` (default `season-pack`) and set `SEASON_PACK_MODE=1`. When the season's first episode passes its air date + delay, unmonitarr re-monitors **every episode in that season** instead of waiting weeks for each one's listed date.
+Tag the series with `SEASON_PACK_MODE_TAG` (default `season-pack`) and set `SEASON_PACK_MODE=1`. When the season's first episode passes its air date + delay, unmonitarr re-monitors **every episode in that season** that has an air date, instead of waiting weeks for each one's listed date.
 
 Example: Sonarr lists a season weekly from 1 November, but all of it is released on 1 November. With season pack mode, the whole season is monitored from 1 November + delay.
 
-**Check Sonarr will accept the pack.** Sonarr rejects full-season packs while any episode's listed air date is more than 24 hours away. With season pack mode on, it can still grab the individual episodes, but not the pack itself.
+**Check Sonarr will accept the pack.** Sonarr rejects full-season packs while any episode's listed air date is more than 24 hours away, or any episode has no air date. With season pack mode on, it can still grab the individual episodes, but not the pack itself.
 
 - **Sonarr v4**: this can't be turned off, so expect individual episodes.
 - **Sonarr v5**: enable **Allow Season Pack Before All Episodes Have Aired** on a Release Profile tagged for the series. If several profiles apply, the more restrictive one wins, so it must be on for all of them. If you also use **Reject Unaired Releases**, exclude these series from that profile, since it checks every episode in the pack against its listed date.
@@ -283,7 +283,7 @@ With `SONARR_REFRESH_TBA=1`, unmonitarr asks Sonarr to refresh a series when it 
 - Retried each run until the title lands, for up to 72 hours after air, at most once an hour per series
 - Episodes that already have a file are included, so the title is right in Sonarr's database
 
-**Check this Sonarr setting:** Settings → Media Management → Importing → **Episode Title Required**. Set to `Always` or `Only for Bulk Season Releases`, Sonarr holds the download until the title arrives, and the refresh gets it there sooner. Set to `Never`, Sonarr imports straight away with `TBA` in the filename.
+**Check this Sonarr setting:** Settings → Media Management → Importing → **Episode Title Required**. If your episode naming format includes the title, `Always` makes Sonarr hold an import while the title is still `TBA`, for up to 48 hours after air, and the refresh gets the title there sooner. `Only for Bulk Season Releases` does this only for seasons released all at once. `Never` imports straight away with `TBA` in the filename.
 
 Sonarr doesn't rename files when metadata changes, so anything already imported as `TBA` needs renaming by hand.
 
@@ -291,13 +291,14 @@ Sonarr doesn't rename files when metadata changes, so anything already imported 
 
 ## Testing in Dry-Run Mode
 
-With `DRY_RUN=1`, decisions are logged as normal and every write is logged with a `[DRY]` prefix instead of being sent:
+With `DRY_RUN=1`, decisions are logged as normal and every write is logged with a `[DRY]` prefix instead of being sent. For example (timestamps removed):
 
 ```text
 INFO:radarr:[DRY] UNMONITOR: Example Movie until 2026-12-01T02:00:00+00:00
 INFO:radarr:[DRY] PUT /api/v3/movie/editor -> {"movieIds": [12], "monitored": false, "tags": [3], "applyTags": "add"}
 INFO:radarr:SUMMARY: Assessed 20, Managed 1, Unmonitored 1, Monitored 0
 INFO:sonarr:UNMONITOR: Example Series – S02E05 – Episode Title (airDate: 2026-12-03T09:00:00Z)
+INFO:sonarr:[DRY] PUT /api/v3/series/editor -> {"seriesIds": [87], "tags": [3], "applyTags": "add"}
 INFO:sonarr:[DRY] PUT /api/v3/episode/monitor -> {"episodeIds": [4521], "monitored": false}
 INFO:sonarr:SUMMARY: Assessed 447, Managed 1, Unmonitored 1, Monitored 0
 ```
@@ -307,9 +308,9 @@ Check the decisions look right, then set `DRY_RUN=0`.
 To test the webhook and health endpoints:
 
 ```bash
-curl -X POST http://localhost:5099/trigger/sonarr   # {"job": "sonarr", "status": "queued"}
-curl -X POST http://localhost:5099/trigger/radarr   # {"job": "radarr", "status": "queued"}
-curl http://localhost:5099/health                   # {"service": "unmonitarr", "status": "healthy"}
+curl -X POST http://localhost:5099/trigger/sonarr   # {"job":"sonarr","status":"queued"}
+curl -X POST http://localhost:5099/trigger/radarr   # {"job":"radarr","status":"queued"}
+curl http://localhost:5099/health                   # {"service":"unmonitarr","status":"healthy"}
 ```
 
 ---
@@ -321,15 +322,16 @@ Start with the logs: `docker compose logs unmonitarr`. Failed API calls are logg
 | Log message | What to check |
 |-------------|---------------|
 | `401 Unauthorized (check the API key)` | The API key for that app |
-| `no response from http://...` | The URL, and that Sonarr/Radarr is reachable from the container. Retried 3 times per run |
+| `no response from http://...` | The URL, and that Sonarr/Radarr is reachable from the container. Each run makes 3 attempts |
+| `isn't a valid URL` | Include `http://` or `https://` in the URL |
 | `returned something other than JSON` | The URL, including any URL base (e.g. `http://radarr:7878/radarr`) |
 | `Couldn't create tag ...: Allowed characters a-z, 0-9 and -` | A tag name with `_` or other characters newer versions reject. See [tag names](#general) |
-| `is enabled but ..._API_KEY is not set` | The missing setting, or set `ENABLE_SONARR=0` / `ENABLE_RADARR=0` |
+| `is enabled but ... not set` | The missing URL or API key, or set `ENABLE_SONARR=0` / `ENABLE_RADARR=0` |
 | `Couldn't add auto-tag to <series>` | Sonarr rejected an edit to that series. Its episodes are left monitored; the reason follows in the message |
 
 **Nothing is changing:** check `DRY_RUN=0`, the item isn't tagged with the ignore tag, and its season (for Sonarr) is monitored.
 
-**Radarr Allowed Hosts:** Radarr 6.4 and later has an Allowed Hosts setting. If you've filled it in, add the host name from your `RADARR_URL`, or Radarr will reject unmonitarr's requests.
+**Allowed Hosts:** recent Sonarr v4 releases, Sonarr v5 and Radarr 6.4.3 and later have an Allowed Hosts setting. If you've filled it in, add the host name from your `SONARR_URL`/`RADARR_URL`, or unmonitarr's requests will be rejected.
 
 **Re-monitored at the wrong time:** check the air/release dates in Sonarr/Radarr and any `delayby` tags on the item. `TZ` only affects log timestamps.
 
@@ -409,7 +411,7 @@ Not currently. Only Sonarr and Radarr are supported.
 
 ### Will it slow down my downloads?
 
-Only by your chosen delay. That's the trade: a short wait for fewer fakes.
+Only by your chosen delay, plus up to `SLEEP_MINUTES` until the next scheduled run notices it has passed. That's the trade: a short wait for fewer fakes.
 
 ### Can I exclude specific shows or movies?
 
