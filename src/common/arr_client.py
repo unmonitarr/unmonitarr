@@ -74,6 +74,9 @@ def request(base_url, api_key, method, path, *, dry_run, log, timeout=30, **kw):
         with requests.Session() as session:
             session.headers.update({"X-Api-Key": api_key})
             response = session.request(method, f"{base_url}{path}", timeout=timeout, **kw)
+    except requests.exceptions.InvalidProxyURL as e:
+        raise ArrApiError(f"{method} {path} failed: the proxy URL in HTTP_PROXY/HTTPS_PROXY isn't valid "
+                          f"({e})", transient=False) from e
     except (requests.exceptions.InvalidURL, requests.exceptions.MissingSchema,
             requests.exceptions.InvalidSchema) as e:
         raise ArrApiError(f"{method} {path} failed: {base_url} isn't a valid URL. Include http:// or https:// "

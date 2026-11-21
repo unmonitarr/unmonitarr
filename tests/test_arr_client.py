@@ -126,6 +126,20 @@ class TestErrors(unittest.TestCase):
         self.assertIn("isn't a valid URL", str(cm.exception))
         self.assertFalse(cm.exception.transient)
 
+    def test_bad_proxy_is_blamed_on_the_proxy(self):
+        with self.assertRaises(arr_client.ArrApiError) as cm:
+            self.send(exc=requests.exceptions.InvalidProxyURL("bad proxy"))
+        self.assertIn("HTTP_PROXY", str(cm.exception))
+        self.assertNotIn("isn't a valid URL. Include", str(cm.exception))
+        self.assertFalse(cm.exception.transient)
+
+    def test_ensure_tag_keeps_transient_flag(self):
+        def req(method, path, **kw):
+            arr_client.raise_for_status(method, path, FakeResponse({}, 503))
+        with self.assertRaises(arr_client.ArrApiError) as cm:
+            arr_client.ensure_tag(req, "new", {}, dry_run=False, log=log)
+        self.assertTrue(cm.exception.transient)
+
     def test_validation_messages_are_joined(self):
         with self.assertRaises(arr_client.ArrApiError) as cm:
             self.send(FakeResponse([{"errorMessage": "First"}, {"errorMessage": "Second"}], 400))
@@ -210,6 +224,7 @@ class TestRunWithRetries(unittest.TestCase):
 class TestIsConfigured(unittest.TestCase):
     def setUp(self):
         arr_client._warned_unconfigured.clear()
+        self.addCleanup(arr_client._warned_unconfigured.clear)
 
     def test_disabled_is_quiet(self):
         with self.assertNoLogs(log, level="INFO"):

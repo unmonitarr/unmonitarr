@@ -21,15 +21,15 @@ class Config:
 
     # Radarr
     ENABLE_RADARR      = env_bool("ENABLE_RADARR", "1")
-    RADARR_URL         = os.environ.get("RADARR_URL", "").rstrip("/")
-    RADARR_API_KEY     = os.environ.get("RADARR_API_KEY", "")
+    RADARR_URL         = os.environ.get("RADARR_URL", "").strip().rstrip("/")
+    RADARR_API_KEY     = os.environ.get("RADARR_API_KEY", "").strip()
     PREFERRED_RELEASE  = os.environ.get("PREFERRED_RELEASE", "either").lower()  # digital|physical|either
     IGNORE_INCINEMAS   = env_bool("IGNORE_INCINEMAS", "0")
 
     # Sonarr
     ENABLE_SONARR         = env_bool("ENABLE_SONARR", "1")
-    SONARR_URL            = os.environ.get("SONARR_URL", "").rstrip("/")
-    SONARR_API_KEY        = os.environ.get("SONARR_API_KEY", "")
+    SONARR_URL            = os.environ.get("SONARR_URL", "").strip().rstrip("/")
+    SONARR_API_KEY        = os.environ.get("SONARR_API_KEY", "").strip()
     SEASON_PACK_MODE      = env_bool("SEASON_PACK_MODE", "0")
     SEASON_PACK_MODE_TAG  = os.environ.get("SEASON_PACK_MODE_TAG", "season-pack")
     SONARR_REFRESH_TBA    = env_bool("SONARR_REFRESH_TBA", "0")

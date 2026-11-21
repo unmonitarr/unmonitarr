@@ -127,5 +127,24 @@ class TestConfigAccessors(unittest.TestCase):
         self.assertNotIn("NOPE", self.config)
 
 
+
+class TestConfigWhitespace(unittest.TestCase):
+    """Stray whitespace in URLs and API keys (e.g. a trailing newline) is stripped."""
+
+    def test_urls_and_keys_are_stripped(self):
+        import importlib
+        import os
+        from unittest.mock import patch
+        import core.config
+        env = {"SONARR_URL": " http://sonarr:8989/ \n", "SONARR_API_KEY": "abc\n",
+               "RADARR_URL": "http://radarr:7878\n", "RADARR_API_KEY": " def "}
+        with patch.dict(os.environ, env):
+            importlib.reload(core.config)
+            cfg = core.config.Config
+            self.assertEqual((cfg.SONARR_URL, cfg.SONARR_API_KEY, cfg.RADARR_URL, cfg.RADARR_API_KEY),
+                             ("http://sonarr:8989", "abc", "http://radarr:7878", "def"))
+        importlib.reload(core.config)
+
+
 if __name__ == "__main__":
     unittest.main()

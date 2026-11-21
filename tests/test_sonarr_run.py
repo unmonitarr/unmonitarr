@@ -466,6 +466,28 @@ class TestFailures(SonarrRunTestCase):
         self.assertIn("Couldn't unmonitor 2 episode(s) in Other Series, Test Series", str(cm.exception))
         self.assertIn("Bad", str(cm.exception))
 
+    def test_transient_episode_write_failure_stays_transient(self):
+        fake = self.two_series()
+        fake.fail("PUT", r"/api/v3/episode/monitor", 503)
+        with self.assertRaises(ArrApiError) as cm:
+            self.run_pass(fake)
+        self.assertTrue(cm.exception.transient)
+
+    def test_remonitor_failure_names_the_series(self):
+        fake = FakeSonarr([series(tags=[AUTO])], {(10, 1): [episode(100, air_hours=-5, monitored=False)]}, TAGS)
+        fake.fail("PUT", r"/api/v3/episode/monitor", 400, {"message": "Bad"})
+        with self.assertRaises(ArrApiError) as cm:
+            self.run_pass(fake)
+        self.assertIn("Couldn't re-monitor 1 episode(s) in Test Series", str(cm.exception))
+
+    def test_season_pack_remonitor_failure_names_the_series(self):
+        eps = [episode(100, number=1, air_hours=-5, monitored=False)]
+        fake = FakeSonarr([series(tags=[AUTO, SEASON_PACK])], {(10, 1): eps}, TAGS)
+        fake.fail("PUT", r"/api/v3/episode/monitor", 400, {"message": "Bad"})
+        with self.assertRaises(ArrApiError) as cm:
+            self.run_pass(fake, SEASON_PACK_MODE=True)
+        self.assertIn("in Test Series", str(cm.exception))
+
     def test_transient_failure_removing_tag_is_a_warning(self):
         fake = FakeSonarr([series(tags=[AUTO])], {(10, 1): [episode(100, air_hours=-5, monitored=False)]}, TAGS)
         fake.fail("PUT", r"/api/v3/series/editor", 503)
@@ -500,6 +522,7 @@ class TestRunOnce(unittest.TestCase):
     def setUp(self):
         from common import arr_client
         arr_client._warned_unconfigured.clear()
+        self.addCleanup(arr_client._warned_unconfigured.clear)
 
     def run_once(self, fake, **config):
         with patch.object(sonarr_app, "Config", make_config(**config)), \

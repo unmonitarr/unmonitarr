@@ -177,6 +177,7 @@ class TestRadarrRunOnce(unittest.TestCase):
     def setUp(self):
         from common import arr_client
         arr_client._warned_unconfigured.clear()
+        self.addCleanup(arr_client._warned_unconfigured.clear)
 
     def run_once(self, fake, **config):
         with patch.object(radarr_app, "Config", make_config(**config)), \
