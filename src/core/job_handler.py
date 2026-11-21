@@ -1,7 +1,7 @@
-import logging
+from common.logger import get_logger
 from core.config import Config
 
-log = logging.getLogger("runner")
+log = get_logger("job_handler")
 
 def get_enabled_apps():
     """Reads config and returns a list of enabled apps"""

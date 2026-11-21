@@ -1,4 +1,4 @@
-import logging
+from common.logger import get_logger
 from common.logging_setup import setup_logging
 from core.job_handler import initialise_environment
 from core.job_queue import start_job_queue
@@ -8,7 +8,7 @@ from services.webhook_service import start_webhook_server
 def main():
     # Setup logging
     setup_logging()
-    logger = logging.getLogger("main")
+    logger = get_logger("main")
     logger.info("🔧 Initialising Unmonitarr...")
 
     # Initialise app configuration and environment

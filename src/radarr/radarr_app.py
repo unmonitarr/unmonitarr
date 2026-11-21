@@ -1,48 +1,32 @@
-import logging, json, re
-from datetime import datetime, timedelta, timezone
-import requests
-from requests.exceptions import ReadTimeout
 import time
+from datetime import datetime, timedelta, timezone
+
+from requests.exceptions import ReadTimeout
+
+from common import arr_client
+from common.logger import get_logger
 from core.config import Config
 
-log = logging.getLogger("radarr")
+log = get_logger("radarr")
 
-_DELAY_TAG_RE = re.compile(r"^delayby_(-?\d+)$", re.IGNORECASE)
-
-def _get_delay_override(tag_ids, id_to_label, title="unknown"):
-    """Return a timedelta override if a delayby_<N> tag is found, else None.
-    If multiple matching tags are found, falls back to None and logs a warning."""
-    matches = []
-    for tid in tag_ids:
-        label = id_to_label.get(int(tid), "")
-        m = _DELAY_TAG_RE.match(label)
-        if m:
-            matches.append(int(m.group(1)))
-    if len(matches) > 1:
-        log.info("Multiple delayby_ tags found for %s, falling back to default delay", title)
-        return None
-    if matches:
-        log.debug("Using delay override of %d min for %s", matches[0], title)
-        return timedelta(minutes=matches[0])
-    return None
-
-def _api(path: str) -> str:
-    return f"{Config.RADARR_URL}{path}"
 
 def _req(method: str, path: str, **kw):
-    s = requests.Session()
-    s.headers.update({"X-Api-Key": Config.RADARR_API_KEY})
-    url = _api(path)
-    if method.upper() in ("POST","PUT","PATCH","DELETE") and Config.DRY_RUN:
-        payload = kw.get("json") or kw.get("data")
-        log.info("[DRY] %s %s -> %s", method.upper(), path, json.dumps(payload) if payload else "(no body)")
-        class Dummy:
-            ok=True
-            status_code=200
-            def json(self): return {}
-            text=""
-        return Dummy()
-    return s.request(method.upper(), url, timeout=30, **kw)
+    return arr_client.request(Config.RADARR_URL, Config.RADARR_API_KEY, method, path,
+                              dry_run=Config.DRY_RUN, log=log, **kw)
+
+
+def _tags_map():
+    return arr_client.fetch_tags(_req)
+
+
+def _ensure_tag(label, label_to_id):
+    return arr_client.ensure_tag(_req, label, label_to_id, dry_run=Config.DRY_RUN, log=log)
+
+
+def _get_delay_override(tag_ids, id_to_label, title="unknown"):
+    """Return a timedelta override if a delayby_<N> tag is found, else None."""
+    return arr_client.get_delay_override(tag_ids, id_to_label, title, log)
+
 
 def _parse_iso(s):
     if not s: return None
@@ -72,24 +56,6 @@ def _pick_release(movie):
 def _has_file(movie):
     if "hasFile" in movie: return bool(movie["hasFile"])
     return bool(movie.get("movieFile"))
-
-def _tags_map():
-    r = _req("GET","/api/v3/tag")
-    items = r.json() if hasattr(r, "json") else []
-    return { int(t["id"]): t["label"] for t in items }, { t["label"].lower(): int(t["id"]) for t in items }
-
-def _ensure_tag(label, label_to_id):
-    if label.lower() in label_to_id:
-        return label_to_id[label.lower()]
-    if Config.DRY_RUN:
-        log.info("[DRY] POST /api/v3/tag -> {\"label\": \"%s\"}", label)
-        return 999999
-    r = _req("POST","/api/v3/tag", json={"label": label})
-    if r.ok:
-        # refresh
-        _, rev = _tags_map()
-        return rev.get(label.lower())
-    raise RuntimeError("Failed to ensure tag")
 
 def _apply_tags(movie_id, tag_id, mode):
     payload = {"movieIds":[movie_id], "tags":[tag_id], "applyTags": mode}
@@ -175,9 +141,6 @@ def run_once():
                 log.error("Failed after 3 attempts: %s", e)
 
 
-def run_job():
+def run_radarr():
     log.info("Radarr job triggered via job queue")
     run_once()
-
-# Export for external import
-run_radarr = run_job

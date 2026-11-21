@@ -1,6 +1,6 @@
 from common.logger import get_logger
 from radarr.radarr_app import run_radarr
-from sonarr.sonarr_app import run_job
+from sonarr.sonarr_app import run_sonarr
 
 class JobWorker:
     """
@@ -15,7 +15,7 @@ class JobWorker:
         # Map job types to their processing functions
         self.job_functions = {
             'radarr': run_radarr,
-            'sonarr': run_job
+            'sonarr': run_sonarr
         }
 
     def run(self):
@@ -27,27 +27,28 @@ class JobWorker:
 
         while True:
             try:
-                # Block until a job is available in the queue
-                job_type, triggered_by = self.job_queue.get()
-
-                if job_type not in self.job_functions:
-                    self.logger.error(f"Unknown job type: {job_type}")
-                    continue
-
-                # Acquire the lock for this job type to prevent concurrent execution
-                lock = self.job_locks.get(job_type)
-                if not lock:
-                    self.logger.error(f"No lock found for job type: {job_type}")
-                    continue
-
-                with lock:
-                    self.logger.info(f"Starting {job_type} job (triggered_by={triggered_by})")
-                    try:
-                        job_func = self.job_functions[job_type]
-                        job_func()
-                        self.logger.info(f"Completed {job_type} job (triggered_by={triggered_by})")
-                    except Exception as e:
-                        self.logger.error(f"Error processing {job_type} job: {e}", exc_info=True)
-
+                self.process_next()
             except Exception as e:
                 self.logger.error(f"Unexpected error in job worker: {e}", exc_info=True)
+
+    def process_next(self):
+        """Block until a job is queued, then run it under its app's lock."""
+        job_type, triggered_by = self.job_queue.get()
+
+        if job_type not in self.job_functions:
+            self.logger.error(f"Unknown job type: {job_type}")
+            return
+
+        # Acquire the lock for this job type to prevent concurrent execution
+        lock = self.job_locks.get(job_type)
+        if not lock:
+            self.logger.error(f"No lock found for job type: {job_type}")
+            return
+
+        with lock:
+            self.logger.info(f"Starting {job_type} job (triggered_by={triggered_by})")
+            try:
+                self.job_functions[job_type]()
+                self.logger.info(f"Completed {job_type} job (triggered_by={triggered_by})")
+            except Exception as e:
+                self.logger.error(f"Error processing {job_type} job: {e}", exc_info=True)
