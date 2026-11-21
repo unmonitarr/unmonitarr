@@ -209,7 +209,7 @@ The windows stop unmonitarr from re-monitoring old content, such as a movie you 
 | `SLEEP_MINUTES` | `30` | Minutes between scheduled runs |
 | `DELAY_MINUTES` | `120` | Minutes after air/release before re-monitoring. Negative values re-monitor early (e.g. `-60`) |
 | `DRY_RUN` | `1` | `1` = log what would change, `0` = apply changes |
-| `SKIP_IF_FILE` | `1` | Leave items that already have a file. Sonarr episodes with no air date are still unmonitored |
+| `SKIP_IF_FILE` | `1` | Leave items that already have a file |
 | `AUTO_TAG_NAME` | `auto-unmonitored` | Tag marking items unmonitarr is managing. Created if missing |
 | `IGNORE_TAG_NAME` | `ignore` | Items with this tag are never touched |
 | `RADARR_REMONITOR_WINDOW_DAYS` | `30` | Only re-monitor movies released within this many days (`0` = no limit) |
