@@ -106,8 +106,35 @@ class TestRadarrRun(RadarrRunTestCase):
         self.run_pass(fake, PREFERRED_RELEASE="physical")
         self.assertEqual(self.state(fake), (False, [AUTO]))
 
-    def test_cinema_date_used_only_as_fallback(self):
+    def test_cinema_only_waits_90_days(self):
+        # Opened in cinemas 5 hours ago: Radarr's rule is cinema + 90 days, so not yet
         fake = self.run_pass(FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-5)], TAGS))
+        self.assertEqual(self.state(fake), (False, [AUTO]))
+
+    def test_cinema_only_still_waiting_at_89_days(self):
+        fake = self.run_pass(FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-24 * 89)], TAGS))
+        self.assertEqual(self.state(fake), (False, [AUTO]))
+
+    def test_cinema_only_remonitored_after_90_days(self):
+        fake = self.run_pass(FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-24 * 91)], TAGS))
+        self.assertEqual(self.state(fake), (True, []))
+
+    def test_cinema_only_monitored_movie_is_unmonitored_until_day_90(self):
+        fake = self.run_pass(FakeRadarr([movie(cinemas=-24 * 10)], TAGS))
+        self.assertEqual(self.state(fake), (False, [AUTO]))
+
+    def test_cinema_fallback_window_counts_from_day_90(self):
+        # 110 days after cinema = 20 days after the fallback date: inside the 30-day window
+        fake = self.run_pass(FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-24 * 110)], TAGS))
+        self.assertEqual(self.state(fake), (True, []))
+
+    def test_digital_date_wins_over_cinema_fallback(self):
+        fake = self.run_pass(FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-24 * 10, digital=-5)], TAGS))
+        self.assertEqual(self.state(fake), (True, []))
+
+    def test_cinema_fallback_with_digital_preference(self):
+        fake = FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-24 * 91)], TAGS)
+        self.run_pass(fake, PREFERRED_RELEASE="digital")
         self.assertEqual(self.state(fake), (True, []))
 
     def test_cinema_date_ignored_when_configured(self):

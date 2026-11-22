@@ -29,19 +29,27 @@ def _get(path, **kw):
     return arr_client.get_json(_req, path, **kw)
 
 
+# With no digital or physical date, treat a movie as released this long after it opens
+# in cinemas. Matches Radarr's own Minimum Availability = Released. Re-monitoring on the
+# cinema date itself would open the door right when only cam rips and fakes exist.
+CINEMA_FALLBACK = timedelta(days=90)
+
+
 def _pick_release(movie):
     digital  = arr_client.parse_iso(movie.get("digitalRelease"))
     physical = arr_client.parse_iso(movie.get("physicalRelease"))
     cinemas  = arr_client.parse_iso(movie.get("inCinemas"))
+    fallback = None if (Config.IGNORE_INCINEMAS or cinemas is None) else cinemas + CINEMA_FALLBACK
 
     if Config.PREFERRED_RELEASE == "digital":
-        return digital or physical or (None if Config.IGNORE_INCINEMAS else cinemas)
+        return digital or physical or fallback
     if Config.PREFERRED_RELEASE == "physical":
-        return physical or digital or (None if Config.IGNORE_INCINEMAS else cinemas)
+        return physical or digital or fallback
     # either
     candidates = [d for d in (digital, physical) if d]
-    if candidates: return min(candidates)
-    return None if Config.IGNORE_INCINEMAS else cinemas
+    if candidates:
+        return min(candidates)
+    return fallback
 
 def _has_file(movie):
     if "hasFile" in movie: return bool(movie["hasFile"])

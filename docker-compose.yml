@@ -26,7 +26,7 @@ services:
       - RADARR_URL=http://radarr:7878    # Container name or IP; localhost is the unmonitarr container
       - RADARR_API_KEY=${RADARR_API_KEY} # Settings > General > Security
       - PREFERRED_RELEASE=either         # either, digital or physical
-      - IGNORE_INCINEMAS=0               # 1 = never fall back to the cinema release date
+      - IGNORE_INCINEMAS=0               # 1 = wait for a digital/physical date, never use cinema + 90 days
       - RADARR_REMONITOR_WINDOW_DAYS=30  # Only re-monitor movies released within this many days (0 = no limit)
 
       # --- Sonarr ---

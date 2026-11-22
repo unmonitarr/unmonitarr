@@ -30,7 +30,7 @@ unmonitarr keeps upcoming content unmonitored until its air or release date plus
 
 Sonarr and Radarr have been adding their own versions of this. Here's an honest comparison so you can decide.
 
-**Radarr** has long had a built-in equivalent: set a movie's **Minimum Availability** to *Released* and set **Availability Delay** under Settings → Indexers. Radarr then won't grab a movie automatically until the earlier of its digital and physical release dates, plus the delay. With neither date, it waits until 90 days after the cinema release, which is more cautious than unmonitarr: unmonitarr uses the cinema date itself unless you set `IGNORE_INCINEMAS=1`. It doesn't apply to searches you start yourself. If that covers you, you don't need unmonitarr for movies. unmonitarr adds:
+**Radarr** has long had a built-in equivalent: set a movie's **Minimum Availability** to *Released* and set **Availability Delay** under Settings → Indexers. Radarr then won't grab a movie automatically until the earlier of its digital and physical release dates, plus the delay. With neither date, it waits until 90 days after the cinema release, and unmonitarr does the same. It doesn't apply to searches you start yourself. If that covers you, you don't need unmonitarr for movies. unmonitarr adds:
 
 - Delays in minutes rather than whole days
 - Per-movie delays via tags, on top of your default
@@ -104,7 +104,7 @@ services:
       - RADARR_URL=http://radarr:7878    # Container name or IP, not localhost
       - RADARR_API_KEY=your_api_key_here
       - PREFERRED_RELEASE=either         # either, digital or physical
-      - IGNORE_INCINEMAS=0               # 1 = never use cinema release dates
+      - IGNORE_INCINEMAS=0               # 1 = wait for a digital/physical date, never use cinema + 90 days
 
       # Sonarr
       - ENABLE_SONARR=1
@@ -185,7 +185,7 @@ For every movie (skipping those with the ignore tag):
   - `either`: the earlier of the digital and physical dates
   - `digital`: digital, falling back to physical
   - `physical`: physical, falling back to digital
-  - If neither exists, the cinema date is used, unless `IGNORE_INCINEMAS=1`
+  - If neither exists, 90 days after the cinema release is used, matching Radarr. With `IGNORE_INCINEMAS=1`, the movie waits for a digital or physical date instead
 - **Before release date + delay**, or **no release date**: a monitored movie is **unmonitored** and tagged
 - **After release date + delay**: an unmonitored movie with the auto-tag is **re-monitored** and the tag removed, if it was released within `RADARR_REMONITOR_WINDOW_DAYS`
 - Movies that already have a file are left alone when `SKIP_IF_FILE=1`
@@ -225,7 +225,7 @@ The window is counted from the air/release date, not from the end of the delay. 
 | `RADARR_URL` | *required* | e.g. `http://radarr:7878`, including any URL base |
 | `RADARR_API_KEY` | *required* | Settings → General → Security |
 | `PREFERRED_RELEASE` | `either` | `either`, `digital` or `physical` |
-| `IGNORE_INCINEMAS` | `0` | `1` = never fall back to the cinema release date |
+| `IGNORE_INCINEMAS` | `0` | With no digital or physical date, a movie counts as released 90 days after its cinema release. `1` = wait for a real digital or physical date instead |
 
 ### Sonarr settings
 
