@@ -12,9 +12,9 @@ PYTHONPATH=src python3 -m unittest discover tests
 To run one file: `PYTHONPATH=src python3 -m unittest tests.test_sonarr_run`.
 
 If you have pytest installed, `PYTHONPATH=src pytest tests` also works and reports the same count.
-CI runs the unittest command on every push (including `main`), pull request and release tag.
-Images are only built from branches other than `main` and from release tags, and only if the
-tests pass.
+CI runs the unittest command on every push (including `main`), pull request to `main` and release
+tag. Images are only published from branches other than `main` and from release tags, and only if
+the tests pass. Pull requests build the image without publishing it.
 
 Write new tests as `unittest.TestCase` subclasses. `unittest discover` silently skips bare
 `def test_*` functions and pytest fixtures, so pytest-style tests never run under the documented
