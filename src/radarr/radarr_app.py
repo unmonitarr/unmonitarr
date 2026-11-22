@@ -38,18 +38,19 @@ CINEMA_FALLBACK = timedelta(days=90)
 def _pick_release(movie):
     digital  = arr_client.parse_iso(movie.get("digitalRelease"))
     physical = arr_client.parse_iso(movie.get("physicalRelease"))
-    cinemas  = arr_client.parse_iso(movie.get("inCinemas"))
-    fallback = None if (Config.IGNORE_INCINEMAS or cinemas is None) else cinemas + CINEMA_FALLBACK
-
     if Config.PREFERRED_RELEASE == "digital":
-        return digital or physical or fallback
-    if Config.PREFERRED_RELEASE == "physical":
-        return physical or digital or fallback
-    # either
-    candidates = [d for d in (digital, physical) if d]
-    if candidates:
-        return min(candidates)
-    return fallback
+        chosen = digital or physical
+    elif Config.PREFERRED_RELEASE == "physical":
+        chosen = physical or digital
+    else:  # either
+        chosen = min((d for d in (digital, physical) if d), default=None)
+    if chosen is not None:
+        return chosen
+
+    if Config.IGNORE_INCINEMAS:
+        return None
+    cinemas = arr_client.parse_iso(movie.get("inCinemas"))
+    return cinemas + CINEMA_FALLBACK if cinemas is not None else None
 
 def _has_file(movie):
     if "hasFile" in movie: return bool(movie["hasFile"])

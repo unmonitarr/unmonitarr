@@ -185,7 +185,7 @@ For every movie (skipping those with the ignore tag):
   - `either`: the earlier of the digital and physical dates
   - `digital`: digital, falling back to physical
   - `physical`: physical, falling back to digital
-  - If neither exists, 90 days after the cinema release is used, matching Radarr. With `IGNORE_INCINEMAS=1`, the movie waits for a digital or physical date instead
+  - If neither exists, 90 days after the cinema release is used, matching Radarr. With `IGNORE_INCINEMAS=1`, the movie waits for a digital or physical date instead. To have a particular movie monitored from its cinema release, tag it with the ignore tag
 - **Before release date + delay**, or **no release date**: a monitored movie is **unmonitored** and tagged
 - **After release date + delay**: an unmonitored movie with the auto-tag is **re-monitored** and the tag removed, if it was released within `RADARR_REMONITOR_WINDOW_DAYS`
 - Movies that already have a file are left alone when `SKIP_IF_FILE=1`
@@ -194,7 +194,7 @@ For every movie (skipping those with the ignore tag):
 
 The windows stop unmonitarr from re-monitoring old content, such as a movie you watched and deleted years ago. Something still unmonitored when its window passes stays unmonitored. Monitor it by hand if you still want it, or set the window to `0` for no limit.
 
-The window is counted from the air/release date, not from the end of the delay. **Keep delays shorter than the window** (14 days for Sonarr and 30 for Radarr by default), or the item will never be re-monitored.
+The window is counted from the air/release date (for a movie with only a cinema date, from 90 days after it), not from the end of the delay. **Keep delays shorter than the window** (14 days for Sonarr and 30 for Radarr by default), or the item will never be re-monitored.
 
 ---
 

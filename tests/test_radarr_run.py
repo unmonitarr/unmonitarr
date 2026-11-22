@@ -119,6 +119,44 @@ class TestRadarrRun(RadarrRunTestCase):
         fake = self.run_pass(FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-24 * 91)], TAGS))
         self.assertEqual(self.state(fake), (True, []))
 
+    def test_cinema_fallback_boundary(self):
+        # No delay, so the threshold is exactly cinema + 90 days
+        for days, expected in ((89.9, (False, [AUTO])), (90.1, (True, []))):
+            fake = FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-24 * days)], TAGS)
+            self.run_pass(fake, DELAY_MINUTES=0)
+            self.assertEqual(self.state(fake), expected, days)
+
+    def test_future_digital_date_beats_passed_cinema_fallback(self):
+        # Cinema + 90 days has passed, but a digital date is now published for 2 days' time:
+        # wait for the digital date, whatever the preference
+        for preference in ("either", "digital", "physical"):
+            fake = FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-24 * 100, digital=48)], TAGS)
+            self.run_pass(fake, PREFERRED_RELEASE=preference)
+            self.assertEqual(self.state(fake), (False, [AUTO]), preference)
+
+    def test_future_physical_date_beats_passed_cinema_fallback(self):
+        for preference in ("either", "digital", "physical"):
+            fake = FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-24 * 100, physical=48)], TAGS)
+            self.run_pass(fake, PREFERRED_RELEASE=preference)
+            self.assertEqual(self.state(fake), (False, [AUTO]), preference)
+
+    def test_cinema_fallback_with_physical_preference(self):
+        fake = FakeRadarr([movie(monitored=False, tags=[AUTO], cinemas=-24 * 91)], TAGS)
+        self.run_pass(fake, PREFERRED_RELEASE="physical")
+        self.assertEqual(self.state(fake), (True, []))
+
+    def test_extreme_cinema_date_does_not_break_movies_with_real_dates(self):
+        m = movie(monitored=False, tags=[AUTO], digital=-5)
+        m["inCinemas"] = "9999-12-30T00:00:00Z"
+        fake = self.run_pass(FakeRadarr([m], TAGS))
+        self.assertEqual(self.state(fake), (True, []))
+
+    def test_upgrade_monitored_cinema_only_movie_is_unmonitored_until_day_90(self):
+        # Re-monitored on its cinema date by an older version (tag removed): now unmonitored
+        # and tagged again until day 90
+        fake = self.run_pass(FakeRadarr([movie(monitored=True, tags=[], cinemas=-24 * 10)], TAGS))
+        self.assertEqual(self.state(fake), (False, [AUTO]))
+
     def test_cinema_only_monitored_movie_is_unmonitored_until_day_90(self):
         fake = self.run_pass(FakeRadarr([movie(cinemas=-24 * 10)], TAGS))
         self.assertEqual(self.state(fake), (False, [AUTO]))
