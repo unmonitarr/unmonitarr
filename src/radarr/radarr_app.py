@@ -50,7 +50,12 @@ def _pick_release(movie):
     if Config.IGNORE_INCINEMAS:
         return None
     cinemas = arr_client.parse_iso(movie.get("inCinemas"))
-    return cinemas + CINEMA_FALLBACK if cinemas is not None else None
+    if cinemas is None:
+        return None
+    try:
+        return cinemas + CINEMA_FALLBACK
+    except OverflowError:  # nonsense date at the end of the calendar
+        return None
 
 def _has_file(movie):
     if "hasFile" in movie: return bool(movie["hasFile"])

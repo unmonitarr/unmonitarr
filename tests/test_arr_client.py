@@ -247,7 +247,7 @@ class TestParseIso(unittest.TestCase):
             self.assertEqual(arr_client.parse_iso(value), expected, value)
 
     def test_missing_or_invalid(self):
-        for value in (None, "", "TBA", "2026-13-45"):
+        for value in (None, "", "TBA", "2026-13-45", "9999-12-31T23:00:00-05:00"):
             self.assertIsNone(arr_client.parse_iso(value), value)
 
 

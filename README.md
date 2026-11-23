@@ -185,7 +185,7 @@ For every movie (skipping those with the ignore tag):
   - `either`: the earlier of the digital and physical dates
   - `digital`: digital, falling back to physical
   - `physical`: physical, falling back to digital
-  - If neither exists, 90 days after the cinema release is used, matching Radarr. With `IGNORE_INCINEMAS=1`, the movie waits for a digital or physical date instead. To have a particular movie monitored from its cinema release, tag it with the ignore tag
+  - If neither exists, 90 days after the cinema release is used, matching Radarr. With `IGNORE_INCINEMAS=1`, the movie waits for a digital or physical date instead. To have a particular movie monitored from its cinema release, add the ignore tag and monitor it yourself
 - **Before release date + delay**, or **no release date**: a monitored movie is **unmonitored** and tagged
 - **After release date + delay**: an unmonitored movie with the auto-tag is **re-monitored** and the tag removed, if it was released within `RADARR_REMONITOR_WINDOW_DAYS`
 - Movies that already have a file are left alone when `SKIP_IF_FILE=1`

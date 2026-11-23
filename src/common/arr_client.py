@@ -128,11 +128,11 @@ def parse_iso(value):
         value = value[:-1] + "+00:00"
     try:
         dt = datetime.fromisoformat(value)
-    except ValueError:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
 
 
 def run_with_retries(fn, app_name, log, attempts=3, delay_seconds=5):
